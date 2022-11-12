@@ -26,6 +26,7 @@ def fftnd(img, axes=[-1]):
 class recoMRD(object):    
     hdr     = None
     fov     = None
+    xml     = None
     data    = None
     flags   = None
     affine  = None
@@ -33,8 +34,8 @@ class recoMRD(object):
     dim_info    = None
     dim_size    = None
     matrix_size = None
-    img  = None
-    kspace = None
+    img     = None
+    kspace  = None
     
     def __init__(self, filename=None):        
         self.filename  = filename                
@@ -45,15 +46,20 @@ class recoMRD(object):
             self.dim_info[tags[i]]['len']  = 1
             self.dim_info[tags[i]]['ind'] = i
 
-        self.import_mrd()
-        self.extract_flags()
-        self.create_kspace()
+        self._import_mrd()
+        self._extract_flags()
+        self._create_kspace()
 
     def runReco(self):
-        self.create_image()
-        self.remove_oversamples()
+        self._create_image()
+        self._remove_oversamples()
+        self._create_affine()
+        self._reorder_slice()
+        self._custom_task()
+        self._coil_combination()
+        self._create_mask()
 
-    def import_mrd(self):
+    def _import_mrd(self):
         if not os.path.isfile(self.filename):
             print(f'file {self.filename} doesn\'t exist>')
             raise SystemExit('Goodbye')
@@ -63,11 +69,12 @@ class recoMRD(object):
                 print('MRD file has more than one group. The last group will be imported.')
             dataset_name = list(mrd.keys())[-1]
             data_struct  = mrd[dataset_name]['data'][:]
+            self.xml     = mrd[dataset_name]['xml'][0]
             self.xml_hdr = ismrmrd.xsd.CreateFromDocument(mrd[dataset_name]['xml'][0])
             self.hdr     = data_struct['head']
             self.data    = data_struct['data']
     
-    def extract_flags(self):
+    def _extract_flags(self):
         flags = {}
         flags['pc']         = np.bitwise_and( self.hdr['flags'] , 1 << ismrmrd.ACQ_IS_PHASECORR_DATA-1      ).astype(bool)
         flags['nav']        = np.bitwise_and( self.hdr['flags'] , 1 << ismrmrd.ACQ_IS_NAVIGATION_DATA-1     ).astype(bool)
@@ -137,7 +144,7 @@ class recoMRD(object):
             print(f"\033[93m Number of RO samples ({self.dim_info['ro']['len']}) differs from expectation ({matrix_size['kspace']['x']})\033[0m")
             
 
-    def create_kspace(self):
+    def _create_kspace(self):
         dif = self.dim_info
         dsz = self.dim_size
         # I moved 'cha' and 'ro' to end of numpy array. with this, filling the kspace is much faster in loop
@@ -160,22 +167,22 @@ class recoMRD(object):
         dsz_i = [*range(len(dsz))]
         self.kspace = np.transpose(kspace, dsz_i[-2:] + dsz_i[:-2] )
 
-    def create_image(self):
+    def _create_image(self):
         self.img = np.zeros(self.dim_size, dtype=np.complex64)
         for ind in tqdm(range(self.dim_info['cha']['len']), desc='Fourier transform'):
             temp = self.kspace[ind,:,:,:,:,:,:,:,:,:,:]
             self.img[ind,:,:,:,:,:,:,:,:,:,:] = ifftnd(temp, [0,1,2])
         
-    def coil_combination(self, axis = 0):
-        return np.sqrt(np.sum(abs(self.img)**2, axis, keepdims=True))
+    def _coil_combination(self):
+        return np.sqrt(np.sum(abs(self.img)**2, self.dim_info['cha']['ind'], keepdims=True))
 
 
-    def remove_oversamples(self):
+    def _remove_oversamples(self):
         cutoff = (self.dim_info['ro']['len'] - self.matrix_size['image']['x']) // 2
         self.img = self.img[:,cutoff:-cutoff,:,:,:,:,:]
         
 
-    def reorder_slice(self):
+    def _reorder_slice(self):
         unsorted_order = np.zeros((self.dim_info['slc']['len']))
         for cslc in range(self.dim_info['slc']['len']):
             p1 = np.linalg.solve(self.affine['mat44'], self.affine['soda'][cslc,:,3])
@@ -184,8 +191,13 @@ class recoMRD(object):
         self.img   = self.img[:,:,:,:,ind_sorted,:,:,:,:,:,:]
         self.affine['soda'] = self.affine['soda'][ind_sorted,:,:]
 
+    def _custom_task(self):
+        pass
+    
+    def _create_mask(self):
+        pass
 
-    def create_affine(self):
+    def _create_affine(self):
         hdr = self.hdr
         affine = {}
         affine['soda'] = np.zeros((self.dim_info['slc']['len'], 4, 4))
