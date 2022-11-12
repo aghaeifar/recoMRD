@@ -1,4 +1,5 @@
 import os
+import sys
 import ismrmrd
 import ismrmrd.xsd
 import numpy as np
@@ -37,9 +38,12 @@ class recoMRD(object):
     img     = None
     kspace  = None
     
-    def __init__(self, filename=None):        
+    def __init__(self, filename=None):   
+        if sys.version_info < (3,7,0):
+            raise SystemExit('Python version >= 3.7.x is required. Aborting...')
+
         self.filename  = filename                
-        tags = ['cha', 'ro', 'pe1', 'pe2', 'slc', 'eco', 'rep', 'set', 'seg', 'ave', 'phs']
+        tags = ['cha', 'ro', 'pe1', 'pe2', 'slc', 'eco', 'rep', 'set', 'seg', 'ave', 'phs'] # order matters here
         self.dim_info = {}
         for i in range(len(tags)):
             self.dim_info[tags[i]] = {}
@@ -167,14 +171,17 @@ class recoMRD(object):
         dsz_i = [*range(len(dsz))]
         self.kspace = np.transpose(kspace, dsz_i[-2:] + dsz_i[:-2] )
 
+
     def _create_image(self):
         self.img = np.zeros(self.dim_size, dtype=np.complex64)
         for ind in tqdm(range(self.dim_info['cha']['len']), desc='Fourier transform'):
             temp = self.kspace[ind,:,:,:,:,:,:,:,:,:,:]
             self.img[ind,:,:,:,:,:,:,:,:,:,:] = ifftnd(temp, [0,1,2])
         
+
     def _coil_combination(self):
-        return np.sqrt(np.sum(abs(self.img)**2, self.dim_info['cha']['ind'], keepdims=True))
+        self.img = np.sqrt(np.sum(abs(self.img)**2, self.dim_info['cha']['ind'], keepdims=True))
+        self.dim_info['cha']['len'] = 1
 
 
     def _remove_oversamples(self):

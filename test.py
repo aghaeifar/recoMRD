@@ -14,3 +14,6 @@ mrd = recoMRD_B0(filename)
 
 
 # %%
+
+mrd.sqz()
+# %%
