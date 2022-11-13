@@ -1,11 +1,11 @@
 import os
 import sys
-import ismrmrd
-import ismrmrd.xsd
-import numpy as np
 import h5py
-import warnings
+import ismrmrd
+import numpy as np
 from tqdm import tqdm
+from ismrmrd.xsd import CreateFromDocument as ismrmrd_xml_parser
+
 
 # ifftnd and fftnd are taken from twixtools package
 def ifftnd(kspace, axes=[-1]):
@@ -74,7 +74,7 @@ class recoMRD(object):
             dataset_name = list(mrd.keys())[-1]
             data_struct  = mrd[dataset_name]['data'][:]
             self.xml     = mrd[dataset_name]['xml'][0]
-            self.xml_hdr = ismrmrd.xsd.CreateFromDocument(mrd[dataset_name]['xml'][0])
+            self.xml_hdr = ismrmrd_xml_parser(mrd[dataset_name]['xml'][0])
             self.hdr     = data_struct['head']
             self.data    = data_struct['data']
     
@@ -229,6 +229,16 @@ class recoMRD(object):
         affine['mat44'][0:3,3]  = offcenter
         self.affine = affine
 
+    def sqz(self):
+        for key in list(self.dim_info):
+            if self.dim_info[key]['len'] == 1:
+                self.dim_info.pop(key, None)
+        # refine dimensions index, assuimg sorted dictionary (Python > 3.7)
+        l = list(self.dim_info.items())
+        for i in range(len(self.dim_info)):
+            self.dim_info[l[i][0]]['ind'] = i
+        
+        self.img = np.squeeze(self.img)
 
     def make_nifti(self):
         pass

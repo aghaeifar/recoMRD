@@ -31,14 +31,7 @@ class recoMRD_B0(recoMRD):
         return (scale*self.img_b0 + offset) / self.dTE[0] / (2*np.pi)
 
     def sqz(self):
-        for key in list(self.dim_info):
-            if self.dim_info[key]['len'] == 1:
-                self.dim_info.pop(key, None)
-        # refine dimensions index, assuimg sorted dictionary (Python > 3.7)
-        l = list(self.dim_info.items())
-        for i in range(len(self.dim_info)):
-            self.dim_info[l[i][0]]['ind'] = i
-
+        super().sqz() # update boundries
         self.img_b0     = np.squeeze(self.img_b0)
         self.img_mag    = np.squeeze(self.img_mag)
         self.img_mask   = np.squeeze(self.img_mask)
