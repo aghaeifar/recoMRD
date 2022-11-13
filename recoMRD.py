@@ -12,7 +12,7 @@ def ifftnd(kspace, axes=[-1]):
     from numpy.fft import fftshift, ifftshift, ifftn
     if axes is None:
         axes = range(kspace.ndim)
-    img = fftshift(ifftn(ifftshift(kspace, axes=axes), axes=axes), axes=axes)
+    img  = fftshift(ifftn(ifftshift(kspace, axes=axes), axes=axes), axes=axes)
     img *= np.sqrt(np.prod(np.take(img.shape, axes)))
     return img
 
@@ -20,7 +20,7 @@ def fftnd(img, axes=[-1]):
     from numpy.fft import fftshift, ifftshift, fftn
     if axes is None:
         axes = range(img.ndim)
-    kspace = fftshift(fftn(ifftshift(img, axes=axes), axes=axes), axes=axes)
+    kspace  = fftshift(fftn(ifftshift(img, axes=axes), axes=axes), axes=axes)
     kspace /= np.sqrt(np.prod(np.take(kspace.shape, axes)))
     return kspace
 
@@ -145,7 +145,7 @@ class recoMRD(object):
             self.dim_size[self.dim_info[i]['ind']] = self.dim_info[i]['len']
 
         if self.dim_info['ro']['len'] != matrix_size['kspace']['x']:
-            print(f"\033[93m Number of RO samples ({self.dim_info['ro']['len']}) differs from expectation ({matrix_size['kspace']['x']})\033[0m")
+            print(f"\033[93mNumber of RO samples ({self.dim_info['ro']['len']}) differs from expectation ({matrix_size['kspace']['x']})\033[0m")
             
 
     def _create_kspace(self):
@@ -212,7 +212,7 @@ class recoMRD(object):
         for cslc in range(self.dim_info['slc']['len']):
             ind = np.where((hdr['idx']['slice'] == cslc) & self.flags['image_scan'])[0]
             if len(ind) == 0:
-                print(f"\033[91m slice index not found! aborting...\033[0m")
+                print(f"\033[91mslice index not found! aborting...\033[0m")
                 raise SystemExit('Goodbye')
             
             dcm = np.column_stack((hdr['phase_dir'][ind[0],:], 
@@ -242,10 +242,3 @@ class recoMRD(object):
 
     def make_nifti(self):
         pass
-
-# %%
-# from recoMRD import recoMRD
-# filename = '/DATA/aaghaeifar/rawdata/aa_B0Mapping_basismaps/meas_MID00047_FID27956_aa_B0Mapping_2ndorder_IECO.mrd'
-# mrd = recoMRD(filename)
-# mrd.runReco()
-#
