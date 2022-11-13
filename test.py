@@ -2,9 +2,10 @@
 import recoMRD_B0 
 import importlib
 import numpy as np 
-
+import vini
 
 importlib.reload(recoMRD_B0)
+importlib.reload(vini)
 
 from recoMRD_B0 import recoMRD_B0
 
@@ -16,4 +17,5 @@ mrd = recoMRD_B0(filename)
 # %%
 
 mrd.sqz()
+# vini.show(mrd.img_b0)
 # %%
