@@ -1,12 +1,12 @@
-
-from recoMRD import recoMRD
 import numpy as np
+from recoMRD import recoMRD
 
 class recoMRD_B0(recoMRD):
     dTE         = 0
-    img_mag     = np.empty([1])
     img_b0      = np.empty([1])
+    img_mag     = np.empty([1])    
     img_mask    = np.empty([1])
+    img_b0_uw   = np.empty([1]) # unwrapped 
 
     def __init__(self, filename=None):
         super().__init__(filename)
@@ -28,14 +28,20 @@ class recoMRD_B0(recoMRD):
 
 
     def get_b0hz(self, scale = 1, offset = 0):
-        return (scale*self.img_b0 + offset) / self.dTE[0] / (2*np.pi)
+        if self.img_b0_uw.shape != self.img_b0.shape:
+            print(f"\033[93mUnwrapped image is not yet calculated. \033[0m")
+            return None
+        return (scale*self.img_b0_uw + offset) / self.dTE[0] / (2*np.pi)
 
     def sqz(self):
         super().sqz() # update boundries
         self.img_b0     = np.squeeze(self.img_b0)
         self.img_mag    = np.squeeze(self.img_mag)
         self.img_mask   = np.squeeze(self.img_mask)
+        self.img_b0_uw  = np.squeeze(self.img_b0_uw)
 
+    def unwrap_b0(self):
+        pass
 
     def _coil_combination(self):
         self.img_b0  = np.angle(np.sum(self.img_b0, self.dim_info['cha']['ind'], keepdims=True))
