@@ -1,3 +1,5 @@
+import ctypes
+import os
 import numpy as np
 from recoMRD import recoMRD
 
@@ -35,18 +37,28 @@ class recoMRD_B0(recoMRD):
 
     def sqz(self):
         super().sqz() # update boundries
-        self.img_b0     = np.squeeze(self.img_b0)
-        self.img_mag    = np.squeeze(self.img_mag)
-        self.img_mask   = np.squeeze(self.img_mask)
-        self.img_b0_uw  = np.squeeze(self.img_b0_uw)
+        self.img_b0     = self.img_b0.squeeze()
+        self.img_mag    = self.img_mag.squeeze()
+        self.img_mask   = self.img_mask.squeeze()
+        self.img_b0_uw  = self.img_b0_uw.squeeze()
 
     def unwrap_b0(self):
-        pass
+        dir_path = os.path.dirname(os.path.realpath(__file__))
+        handle   = ctypes.CDLL(os.path.join(dir_path, "lib", "libunwrap_b0.so")) 
+        handle.unwrap_b0.argtypes = [np.ctypeslib.ndpointer(np.float32, ndim=self.img_b0.ndim, flags='F'),
+                                     np.ctypeslib.ndpointer(np.float32, ndim=self.img_b0.ndim, flags='F'),
+                                     ctypes.c_int, ctypes.c_int, ctypes.c_int]
+         
+        self.img_b0_uw = np.zeros(self.img_b0.shape, dtype=np.float32, order='F')
+        b0_size = [x for x in self.img_b0.shape if x > 1]
+        
+        handle.unwrap_b0(self.img_b0, self.img_b0_uw, *b0_size)
+
 
     def _coil_combination(self):
         self.img_b0  = np.angle(np.sum(self.img_b0, self.dim_info['cha']['ind'], keepdims=True))
         self.img_mag = np.sqrt(np.sum(abs(self.img[:,:,:,:,:,0,0,0])**2, self.dim_info['cha']['ind'], keepdims=True))
-        self.img     = []; # save memory
+        # self.img     = []; # save memory
         self.dim_info['cha']['len'] = 1
             
         # update dim info

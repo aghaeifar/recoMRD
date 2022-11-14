@@ -151,13 +151,17 @@ class recoMRD(object):
     def _create_kspace(self):
         dif = self.dim_info
         dsz = self.dim_size
-        # I moved 'cha' and 'ro' to end of numpy array. with this, filling the kspace is much faster in loop
-        dsz_p = dsz[2:] + dsz[0:2]
-        kspace = np.zeros(dsz_p, dtype=np.complex64)
+        # I used here order='F' since for order='C', which is default, filling the kspace was slower. 
+        # To make order='C' fast, we need to move 'cha' and 'ro' to end of numpy array. However, we have to
+        # permute dimensions later then, which will break continuity in memory, i.e. self.kspace.flags is false
+        # for C_CONTIGUOUS and F_CONTIGUOUS
+        # dsz_p = dsz[2:] + dsz[0:2]
+        kspace = np.zeros(dsz, dtype=np.complex64, order = 'F')
 
         for ind in tqdm(list(*np.where(self.flags['image_scan'])), desc='Building k-space'):
             data_tr = (self.data[ind][0::2] + 1j*self.data[ind][1::2]).reshape((dif['cha']['len'], dif['ro']['len']))
-            kspace[self.hdr['idx']['kspace_encode_step_1'][ind],
+            kspace[:,:, 
+                   self.hdr['idx']['kspace_encode_step_1'][ind],
                    self.hdr['idx']['kspace_encode_step_2'][ind],
                    self.hdr['idx']['slice'][ind],
                    self.hdr['idx']['contrast'][ind],
@@ -165,18 +169,18 @@ class recoMRD(object):
                    self.hdr['idx']['set'][ind],
                    self.hdr['idx']['segment'][ind],
                    self.hdr['idx']['average'][ind],
-                   self.hdr['idx']['phase'][ind], :, :] = data_tr
+                   self.hdr['idx']['phase'][ind]] = data_tr
         
         # correcting the dimensions order
         dsz_i = [*range(len(dsz))]
-        self.kspace = np.transpose(kspace, dsz_i[-2:] + dsz_i[:-2] )
-
+        self.kspace = kspace # np.transpose(kspace, dsz_i[-2:] + dsz_i[:-2])
 
     def _create_image(self):
-        self.img = np.zeros(self.dim_size, dtype=np.complex64)
+        self.img = np.zeros(self.dim_size, dtype=np.complex64, order='F')
         for ind in tqdm(range(self.dim_info['cha']['len']), desc='Fourier transform'):
             temp = self.kspace[ind,:,:,:,:,:,:,:,:,:,:]
             self.img[ind,:,:,:,:,:,:,:,:,:,:] = ifftnd(temp, [0,1,2])
+        #self.img = ifftnd(self.kspace, [1,2,3])
         
 
     def _coil_combination(self):
