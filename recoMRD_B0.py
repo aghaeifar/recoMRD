@@ -22,6 +22,7 @@ class recoMRD_B0(recoMRD):
             self.img_b0 = abs(self.img[:,:,:,:,:,1]) * self.img[:,:,:,:,:,1] * \
                           abs(self.img[:,:,:,:,:,0]) * np.conj(self.img[:,:,:,:,:,0])   
             self.dim_info['eco']['len'] = 1
+            self.dim_size[self.dim_info['eco']['ind']] = 1
         else: # shims basis-map, b0map = (Eco2Repn - Eco1Repn) - (Eco2Rep1 - Eco1Rep1)
             self.img_b0 = abs(self.img[:,:,:,:,:,1,:]) * self.img[:,:,:,:,:,1,:]          * \
                           abs(self.img[:,:,:,:,:,0,:]) * np.conj(self.img[:,:,:,:,:,0,:]) * \
@@ -43,26 +44,22 @@ class recoMRD_B0(recoMRD):
         self.img_b0_uw  = self.img_b0_uw.squeeze()
 
     def unwrap_b0(self):
+        self.img_b0_uw = np.zeros(self.img_b0.shape, dtype=np.float32, order='F')
         dir_path = os.path.dirname(os.path.realpath(__file__))
         handle   = ctypes.CDLL(os.path.join(dir_path, "lib", "libunwrap_b0.so")) 
         handle.unwrap_b0.argtypes = [np.ctypeslib.ndpointer(np.float32, ndim=self.img_b0.ndim, flags='F'),
-                                     np.ctypeslib.ndpointer(np.float32, ndim=self.img_b0.ndim, flags='F'),
+                                     np.ctypeslib.ndpointer(np.float32, ndim=self.img_b0_uw.ndim, flags='F'),
                                      ctypes.c_int, ctypes.c_int, ctypes.c_int]
-         
-        self.img_b0_uw = np.zeros(self.img_b0.shape, dtype=np.float32, order='F')
-        b0_size = [x for x in self.img_b0.shape if x > 1]
         
+        b0_size = [x for x in self.img_b0.shape if x > 1]
         handle.unwrap_b0(self.img_b0, self.img_b0_uw, *b0_size)
 
-
     def _coil_combination(self):
+        super()._coil_combination()
         self.img_b0  = np.angle(np.sum(self.img_b0, self.dim_info['cha']['ind'], keepdims=True))
-        self.img_mag = np.sqrt(np.sum(abs(self.img[:,:,:,:,:,0,0,0])**2, self.dim_info['cha']['ind'], keepdims=True))
-        # self.img     = []; # save memory
-        self.dim_info['cha']['len'] = 1
-            
-        # update dim info
-        #   this.update_size(this.img_b0);
+        self.img_mag = self.img[:,:,:,:,:,0,0,0]
+        self.img = [] # save memory
+                    
 
     
     
