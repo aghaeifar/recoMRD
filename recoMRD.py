@@ -3,6 +3,7 @@ import sys
 import h5py
 import ismrmrd
 import numpy as np
+import nibabel as nib
 from tqdm import tqdm
 from ismrmrd.xsd import CreateFromDocument as ismrmrd_xml_parser
 
@@ -29,14 +30,14 @@ class recoMRD(object):
     fov     = None
     xml     = None
     data    = None
-    flags   = None
-    affine  = None
+    flags   = None    
     xml_hdr = None
     dim_info    = None
     dim_size    = None
     matrix_size = None
     img     = None
     kspace  = None
+    transformation  = None
     
     def __init__(self, filename=None):   
         if sys.version_info < (3,7,0):
@@ -57,11 +58,10 @@ class recoMRD(object):
     def runReco(self):
         self._create_image()
         self._remove_oversamples()
-        self._create_affine()
+        self._extract_transformation()
         self._reorder_slice()
         self._custom_task()
         self._coil_combination()
-        self._create_mask()
 
     def _import_mrd(self):
         if not os.path.isfile(self.filename):
@@ -177,6 +177,7 @@ class recoMRD(object):
 
     def _create_image(self):
         self.img = np.zeros(self.dim_size, dtype=np.complex64, order='F')
+        # this loop is slow because of order='F' and ind is in the first dimensions. see above, _create_kspace(). 
         for ind in tqdm(range(self.dim_info['cha']['len']), desc='Fourier transform'):
             temp = self.kspace[ind,:,:,:,:,:,:,:,:,:,:]
             self.img[ind,:,:,:,:,:,:,:,:,:,:] = ifftnd(temp, [0,1,2])
@@ -186,32 +187,33 @@ class recoMRD(object):
     def _coil_combination(self):
         self.img = np.sqrt(np.sum(abs(self.img)**2, self.dim_info['cha']['ind'], keepdims=True))
         self.dim_info['cha']['len'] = 1
+        self.dim_size[self.dim_info['cha']['ind']] = 1
 
 
     def _remove_oversamples(self):
         cutoff = (self.dim_info['ro']['len'] - self.matrix_size['image']['x']) // 2
         self.img = self.img[:,cutoff:-cutoff,:,:,:,:,:]
+        self.dim_info['ro']['len'] = self.img.shape[self.dim_info['ro']['ind']]
+        self.dim_size[self.dim_info['ro']['ind']] = self.dim_info['ro']['len']
         
 
     def _reorder_slice(self):
         unsorted_order = np.zeros((self.dim_info['slc']['len']))
         for cslc in range(self.dim_info['slc']['len']):
-            p1 = np.linalg.solve(self.affine['mat44'], self.affine['soda'][cslc,:,3])
+            p1 = np.linalg.solve(self.transformation['mat44'], self.transformation['soda'][cslc,:,3])
             unsorted_order[cslc] = p1[2]
         ind_sorted = np.argsort(unsorted_order)
         self.img   = self.img[:,:,:,:,ind_sorted,:,:,:,:,:,:]
-        self.affine['soda'] = self.affine['soda'][ind_sorted,:,:]
+        self.transformation['soda'] = self.transformation['soda'][ind_sorted,:,:]
 
+    # any task to be run before coils combination
     def _custom_task(self):
         pass
     
-    def _create_mask(self):
-        pass
-
-    def _create_affine(self):
+    def _extract_transformation(self):
         hdr = self.hdr
-        affine = {}
-        affine['soda'] = np.zeros((self.dim_info['slc']['len'], 4, 4))
+        transformation = {}
+        transformation['soda'] = np.zeros((self.dim_info['slc']['len'], 4, 4))
         offcenter = np.zeros(3)
         for cslc in range(self.dim_info['slc']['len']):
             ind = np.where((hdr['idx']['slice'] == cslc) & self.flags['image_scan'])[0]
@@ -223,26 +225,87 @@ class recoMRD(object):
                                    hdr['read_dir'] [ind[0],:], 
                                    hdr['slice_dir'][ind[0],:]))
 
-            affine['soda'][cslc,0:3,:] = np.column_stack((dcm, hdr['position'][ind[0],:]))
-            affine['soda'][cslc,:,:]   = np.row_stack((affine['soda'][cslc,0:3,:], [0, 0, 0, 1]))           
+            transformation['soda'][cslc,0:3,:] = np.column_stack((dcm, hdr['position'][ind[0],:]))
+            transformation['soda'][cslc,:,:]   = np.row_stack((transformation['soda'][cslc,0:3,:], [0, 0, 0, 1]))           
             offcenter += hdr['position'][ind[0],:]
 
         offcenter /= self.dim_info['slc']['len']
-        affine['offcenter']     = offcenter 
-        affine['mat44']         = affine['soda'][0,:,:] 
-        affine['mat44'][0:3,3]  = offcenter
-        self.affine = affine
+        transformation['offcenter']     = offcenter 
+        transformation['mat44']         = transformation['soda'][0,:,:] 
+        transformation['mat44'][0:3,3]  = offcenter
+        self.transformation = transformation
 
     def sqz(self):
+        print('Squeezing...')
         for key in list(self.dim_info):
-            if self.dim_info[key]['len'] == 1:
+            if self.dim_info[key]['len'] == 1:                
                 self.dim_info.pop(key, None)
         # refine dimensions index, assuimg sorted dictionary (Python > 3.7)
         l = list(self.dim_info.items())
         for i in range(len(self.dim_info)):
             self.dim_info[l[i][0]]['ind'] = i
         
+        self.dim_size = [y for y in self.dim_size if y!=1]
         self.img = np.squeeze(self.img)
 
-    def make_nifti(self):
-        pass
+    def make_nifti(self, volume, filename):
+        if isinstance(volume, np.ndarray) == False: 
+            print("Input volume must be a numpy array")
+            return
+
+        df = self.dim_info
+        ds = [y for y in self.dim_size if y!=1]
+        vs = [y for y in volume.shape  if y!=1]
+        if vs != ds:
+            print(f"Size mismatch! {vs} vs {ds}")
+            return
+
+        if len(vs) > 4 :
+            print(f"{len(vs)}D data is not supported")
+            return
+
+        # bringing to a shape that fits to dim_info
+        volume = volume.reshape(self.dim_size)
+        volume = np.flip(volume, axis = [df['ro']['ind'], 
+                                         df['pe1']['ind'],
+                                         df['slc']['ind']])
+        
+        # creating permute indices
+        prmt_ind = np.arange(0, len(df), 1, dtype=int)
+        # swap ro and pe1
+        prmt_ind[[df['ro']['ind'], df['pe1']['ind']]] = prmt_ind[[df['pe1']['ind'], df['ro']['ind']]] 
+        # move cha to end
+        icha = df['cha']['ind']
+        prmt_ind = np.hstack([prmt_ind[:icha], prmt_ind[icha+1:], prmt_ind[icha]])
+
+        volume = np.transpose(volume, prmt_ind)
+        volume = volume.squeeze()
+
+        # build affine matrix, according to SPM notation
+        T = self.transformation['mat44']
+        T[:,1:3] = -T[:,1:3] # experimentally discovered
+        PixelSpacing = [self.fov['image']['x'] / self.matrix_size['image']['x'], 
+                        self.fov['image']['y'] / self.matrix_size['image']['y']]
+        R = T[:,0:2] @ np.diag(PixelSpacing)
+        x1 = [1,1,1,1]
+        x2 = [1,1,self.matrix_size['image']['z'],1]
+
+        thickness = self.fov['image']['z'] / self.matrix_size['image']['z']
+        zmax = (self.fov['image']['z'] - thickness) / 2
+        y1_c = T @ [0, 0, -zmax, 1]
+        y2_c = T @ [0, 0, +zmax, 1]
+        # SBCS Position Vector points to slice center this must be recalculated for DICOM to point to the upper left corner.
+        y1 = y1_c - T[:,0] * self.fov['image']['x']/2 - T[:,1] * self.fov['image']['y']/2
+        y2 = y2_c - T[:,0] * self.fov['image']['x']/2 - T[:,1] * self.fov['image']['y']/2
+        
+        DicomToPatient = np.column_stack((y1, y2, R)) @ np.linalg.inv(np.column_stack((x1, x2, np.eye(4,2))))
+        # Flip voxels in y
+        AnalyzeToDicom = np.column_stack((np.diag([1,-1,1]), [0, (self.matrix_size['image']['y']+1), 0]))
+        AnalyzeToDicom = np.row_stack((AnalyzeToDicom, [0,0,0,1]))
+        # Flip mm coords in x and y directions
+        PatientToTal   = np.diag([-1, -1, 1, 1]) 
+        affine         = PatientToTal @ DicomToPatient @ AnalyzeToDicom
+        affine         = affine @ np.column_stack((np.eye(4,3), [1,1,1,1])) # this part is implemented in SPM nifti.m
+
+        img = nib.Nifti1Image(volume, affine)
+        nib.save(img, filename)
