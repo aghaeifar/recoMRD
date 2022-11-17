@@ -158,7 +158,7 @@ class recoMRD(object):
         # dsz_p = dsz[2:] + dsz[0:2]
         kspace = np.zeros(dsz, dtype=np.complex64, order = 'F')
 
-        for ind in tqdm(list(*np.where(self.flags['image_scan'])), desc='Building k-space'):
+        for ind in tqdm(list(*np.where(self.flags['image_scan'])), desc='Filling k-space'):
             data_tr = (self.data[ind][0::2] + 1j*self.data[ind][1::2]).reshape((dif['cha']['len'], dif['ro']['len']))
             kspace[:,:, 
                    self.hdr['idx']['kspace_encode_step_1'][ind],
@@ -175,14 +175,13 @@ class recoMRD(object):
         dsz_i = [*range(len(dsz))]
         self.kspace = kspace # np.transpose(kspace, dsz_i[-2:] + dsz_i[:-2])
 
+    # applying iFFT to kspace and build image
     def _create_image(self):
         self.img = np.zeros(self.dim_size, dtype=np.complex64, order='F')
         # this loop is slow because of order='F' and ind is in the first dimensions. see above, _create_kspace(). 
         for ind in tqdm(range(self.dim_info['cha']['len']), desc='Fourier transform'):
             temp = self.kspace[ind,:,:,:,:,:,:,:,:,:,:]
-            self.img[ind,:,:,:,:,:,:,:,:,:,:] = ifftnd(temp, [0,1,2])
-        #self.img = ifftnd(self.kspace, [1,2,3])
-        
+            self.img[ind,:,:,:,:,:,:,:,:,:,:] = ifftnd(temp, [0,1,2])        
 
     def _coil_combination(self):
         self.img = np.sqrt(np.sum(abs(self.img)**2, self.dim_info['cha']['ind'], keepdims=True))
@@ -191,13 +190,15 @@ class recoMRD(object):
 
 
     def _remove_oversamples(self):
-        cutoff = (self.dim_info['ro']['len'] - self.matrix_size['image']['x']) // 2
+        print('Remove oversampling...')
+        cutoff = (self.dim_info['ro']['len'] - self.matrix_size['image']['x']) // 2 # // -> integer division
         self.img = self.img[:,cutoff:-cutoff,:,:,:,:,:]
         self.dim_info['ro']['len'] = self.img.shape[self.dim_info['ro']['ind']]
         self.dim_size[self.dim_info['ro']['ind']] = self.dim_info['ro']['len']
         
 
     def _reorder_slice(self):
+        print('Reorder slice...')
         unsorted_order = np.zeros((self.dim_info['slc']['len']))
         for cslc in range(self.dim_info['slc']['len']):
             p1 = np.linalg.solve(self.transformation['mat44'], self.transformation['soda'][cslc,:,3])
@@ -206,10 +207,11 @@ class recoMRD(object):
         self.img   = self.img[:,:,:,:,ind_sorted,:,:,:,:,:,:]
         self.transformation['soda'] = self.transformation['soda'][ind_sorted,:,:]
 
-    # any task to be run before coils combination
+    # Tasks to be executed before coils combination
     def _custom_task(self):
         pass
     
+    # Coordinate transformation
     def _extract_transformation(self):
         hdr = self.hdr
         transformation = {}
@@ -235,6 +237,7 @@ class recoMRD(object):
         transformation['mat44'][0:3,3]  = offcenter
         self.transformation = transformation
 
+    # Squeezing image data
     def sqz(self):
         print('Squeezing...')
         for key in list(self.dim_info):
@@ -248,6 +251,7 @@ class recoMRD(object):
         self.dim_size = [y for y in self.dim_size if y!=1]
         self.img = np.squeeze(self.img)
 
+    # Save a custom volume as nifti
     def make_nifti(self, volume, filename):
         if isinstance(volume, np.ndarray) == False: 
             print("Input volume must be a numpy array")
@@ -269,8 +273,9 @@ class recoMRD(object):
         volume = np.flip(volume, axis = [df['ro']['ind'], 
                                          df['pe1']['ind'],
                                          df['slc']['ind']])
-        
+        #
         # creating permute indices
+        #
         prmt_ind = np.arange(0, len(df), 1, dtype=int)
         # swap ro and pe1
         prmt_ind[[df['ro']['ind'], df['pe1']['ind']]] = prmt_ind[[df['pe1']['ind'], df['ro']['ind']]] 
@@ -281,7 +286,9 @@ class recoMRD(object):
         volume = np.transpose(volume, prmt_ind)
         volume = volume.squeeze()
 
+        #
         # build affine matrix, according to SPM notation
+        #
         T = self.transformation['mat44']
         T[:,1:3] = -T[:,1:3] # experimentally discovered
         PixelSpacing = [self.fov['image']['x'] / self.matrix_size['image']['x'], 
@@ -307,5 +314,8 @@ class recoMRD(object):
         affine         = PatientToTal @ DicomToPatient @ AnalyzeToDicom
         affine         = affine @ np.column_stack((np.eye(4,3), [1,1,1,1])) # this part is implemented in SPM nifti.m
 
+        #
+        # save to file
+        #
         img = nib.Nifti1Image(volume, affine)
         nib.save(img, filename)
