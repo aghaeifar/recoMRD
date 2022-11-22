@@ -54,11 +54,12 @@ class recoMRD(object):
         self._import_mrd()
         self._extract_flags()
         self._create_kspace()
+        self._extract_transformation()
 
     def runReco(self):
         self._create_image()
         self._remove_oversamples()
-        self._extract_transformation()
+        
         self._reorder_slice()
         self._custom_task()
         self._coil_combination()
@@ -147,7 +148,6 @@ class recoMRD(object):
         if self.dim_info['ro']['len'] != matrix_size['kspace']['x']:
             print(f"\033[93mNumber of RO samples ({self.dim_info['ro']['len']}) differs from expectation ({matrix_size['kspace']['x']})\033[0m")
             
-
     def _create_kspace(self):
         dif = self.dim_info
         dsz = self.dim_size
@@ -156,8 +156,7 @@ class recoMRD(object):
         # permute dimensions later then, which will break continuity in memory, i.e. self.kspace.flags is false
         # for C_CONTIGUOUS and F_CONTIGUOUS
         # dsz_p = dsz[2:] + dsz[0:2]
-        kspace = np.zeros(dsz, dtype=np.complex64, order = 'F')
-
+        kspace = np.zeros(dsz, dtype=np.complex64)
         for ind in tqdm(list(*np.where(self.flags['image_scan'])), desc='Filling k-space'):
             data_tr = (self.data[ind][0::2] + 1j*self.data[ind][1::2]).reshape((dif['cha']['len'], dif['ro']['len']))
             kspace[:,:, 
@@ -171,13 +170,11 @@ class recoMRD(object):
                    self.hdr['idx']['average'][ind],
                    self.hdr['idx']['phase'][ind]] = data_tr
         
-        # correcting the dimensions order
-        dsz_i = [*range(len(dsz))]
-        self.kspace = kspace # np.transpose(kspace, dsz_i[-2:] + dsz_i[:-2])
+        self.kspace = kspace 
 
     # applying iFFT to kspace and build image
     def _create_image(self):
-        self.img = np.zeros(self.dim_size, dtype=np.complex64, order='F')
+        self.img = np.zeros(self.dim_size, dtype=np.complex64)
         # this loop is slow because of order='F' and ind is in the first dimensions. see above, _create_kspace(). 
         for ind in tqdm(range(self.dim_info['cha']['len']), desc='Fourier transform'):
             temp = self.kspace[ind,:,:,:,:,:,:,:,:,:,:]
@@ -188,7 +185,6 @@ class recoMRD(object):
         self.dim_info['cha']['len'] = 1
         self.dim_size[self.dim_info['cha']['ind']] = 1
 
-
     def _remove_oversamples(self):
         print('Remove oversampling...')
         cutoff = (self.dim_info['ro']['len'] - self.matrix_size['image']['x']) // 2 # // -> integer division
@@ -196,7 +192,6 @@ class recoMRD(object):
         self.dim_info['ro']['len'] = self.img.shape[self.dim_info['ro']['ind']]
         self.dim_size[self.dim_info['ro']['ind']] = self.dim_info['ro']['len']
         
-
     def _reorder_slice(self):
         print('Reorder slice...')
         unsorted_order = np.zeros((self.dim_info['slc']['len']))
@@ -253,6 +248,7 @@ class recoMRD(object):
 
     # Save a custom volume as nifti
     def make_nifti(self, volume, filename):
+        
         if isinstance(volume, np.ndarray) == False: 
             print("Input volume must be a numpy array")
             return
@@ -285,18 +281,20 @@ class recoMRD(object):
 
         volume = np.transpose(volume, prmt_ind)
         volume = volume.squeeze()
-
+       
         #
         # build affine matrix, according to SPM notation
         #
-        T = self.transformation['mat44']
+
+        T = self.transformation['mat44'].copy()
         T[:,1:3] = -T[:,1:3] # experimentally discovered
+
         PixelSpacing = [self.fov['image']['x'] / self.matrix_size['image']['x'], 
                         self.fov['image']['y'] / self.matrix_size['image']['y']]
         R = T[:,0:2] @ np.diag(PixelSpacing)
         x1 = [1,1,1,1]
         x2 = [1,1,self.matrix_size['image']['z'],1]
-
+        
         thickness = self.fov['image']['z'] / self.matrix_size['image']['z']
         zmax = (self.fov['image']['z'] - thickness) / 2
         y1_c = T @ [0, 0, -zmax, 1]
@@ -307,13 +305,14 @@ class recoMRD(object):
         
         DicomToPatient = np.column_stack((y1, y2, R)) @ np.linalg.inv(np.column_stack((x1, x2, np.eye(4,2))))
         # Flip voxels in y
+        
         AnalyzeToDicom = np.column_stack((np.diag([1,-1,1]), [0, (self.matrix_size['image']['y']+1), 0]))
         AnalyzeToDicom = np.row_stack((AnalyzeToDicom, [0,0,0,1]))
         # Flip mm coords in x and y directions
         PatientToTal   = np.diag([-1, -1, 1, 1]) 
         affine         = PatientToTal @ DicomToPatient @ AnalyzeToDicom
         affine         = affine @ np.column_stack((np.eye(4,3), [1,1,1,1])) # this part is implemented in SPM nifti.m
-
+        
         #
         # save to file
         #
