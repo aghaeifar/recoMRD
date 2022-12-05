@@ -37,12 +37,12 @@ class recoMRD_B0(recoMRD):
             return None
         return (scale*self.img_b0_uw + offset) / self.dTE[0] / (2*np.pi)
 
-    def sqz(self):
-        super().sqz() # update boundries
-        self.img_b0     = self.img_b0.squeeze()
-        self.img_mag    = self.img_mag.squeeze()
-        self.img_mask   = self.img_mask.squeeze()
-        self.img_b0_uw  = self.img_b0_uw.squeeze()
+    # def sqz(self):
+    #     super().sqz() # update boundries
+    #     self.img_b0     = self.img_b0.squeeze()
+    #     self.img_mag    = self.img_mag.squeeze()
+    #     self.img_mask   = self.img_mask.squeeze()
+    #     self.img_b0_uw  = self.img_b0_uw.squeeze()
 
     def unwrap_b0(self):
         print('Unwrapping B0...')
@@ -76,6 +76,7 @@ class recoMRD_B0(recoMRD):
         handle.runBET.argtypes = [np.ctypeslib.ndpointer(np.float32, ndim=self.img_mag.ndim, flags='F'),
                                   np.ctypeslib.ndpointer(np.float32, ndim=len(mask_size), flags='F'),
                                   ctypes.c_int, ctypes.c_int, ctypes.c_int]
+                                  
         mag = self.img_mag.copy(order='F')
         mask = np.zeros(mask_size, dtype=mag.dtype, order='F')
         handle.runBET(mag, mask, *mask_size) # 3D input     
@@ -86,8 +87,8 @@ class recoMRD_B0(recoMRD):
 
         self.img_mask =  mask.reshape(self.img_mag.shape).copy(order='C') 
 
-    def _coil_combination(self):
-        super()._coil_combination()
+    def _coil_combination(self, volume, method='sos', coil_sens=None):
+        self.img = super()._coil_combination(self.img, method='sos')
         self.img_b0   = np.angle(np.sum(self.img_b0, self.dim_info['cha']['ind'], keepdims=True))
         self.img_mag  = self.img[:,:,:,:,:,0,0,0].copy()
         self.img_mask = self.img_mag.copy()

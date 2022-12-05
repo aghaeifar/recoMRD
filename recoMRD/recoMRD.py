@@ -1,15 +1,14 @@
 import os
 import sys
-import h5py
-import ismrmrd
 import numpy as np
 import nibabel as nib
+from bart import bart
 from tqdm import tqdm
-from ismrmrd.xsd import CreateFromDocument as ismrmrd_xml_parser
+from recoMRD import readMRD
 
 
 # ifftnd and fftnd are taken from twixtools package
-def ifftnd(kspace, axes=[-1]):
+def ifftnd(kspace:np.ndarray, axes=[-1]):
     from numpy.fft import fftshift, ifftshift, ifftn
     if axes is None:
         axes = range(kspace.ndim)
@@ -17,7 +16,7 @@ def ifftnd(kspace, axes=[-1]):
     img *= np.sqrt(np.prod(np.take(img.shape, axes)))
     return img
 
-def fftnd(img, axes=[-1]):
+def fftnd(img:np.ndarray, axes=[-1]):
     from numpy.fft import fftshift, ifftshift, fftn
     if axes is None:
         axes = range(img.ndim)
@@ -25,226 +24,170 @@ def fftnd(img, axes=[-1]):
     kspace /= np.sqrt(np.prod(np.take(kspace.shape, axes)))
     return kspace
 
-class recoMRD(object):    
-    hdr     = None
-    fov     = None
-    xml     = None
-    data    = None
-    flags   = None    
-    xml_hdr = None
-    dim_info    = None
-    dim_size    = None
-    matrix_size = None
-    img     = None
-    kspace  = None
-    transformation  = None
-    
+
+class recoMRD(readMRD):    
+    img    = None
+  
     def __init__(self, filename=None):   
-        if sys.version_info < (3,7,0):
-            raise SystemExit('Python version >= 3.7.x is required. Aborting...')
+        super().__init__(filename)
 
-        self.filename  = filename                
-        tags = ['cha', 'ro', 'pe1', 'pe2', 'slc', 'eco', 'rep', 'set', 'seg', 'ave', 'phs'] # order matters here
-        self.dim_info = {}
-        for i in range(len(tags)):
-            self.dim_info[tags[i]] = {}
-            self.dim_info[tags[i]]['len']  = 1
-            self.dim_info[tags[i]]['ind'] = i
-
-        self._import_mrd()
-        self._extract_flags()
-        self._create_kspace()
-        self._extract_transformation()
 
     def runReco(self):
-        self._create_image()
-        self._remove_oversamples()
-        
-        self._reorder_slice()
+        self.img = self.kspace_to_image(self.kspace['image_scan'])
+        self.img = self.remove_oversampling(self.img)
         self._custom_task()
-        self._coil_combination()
+        self.img = self.coil_combination(self.img, method='sos')
 
-    def _import_mrd(self):
-        if not os.path.isfile(self.filename):
-            print(f'file {self.filename} doesn\'t exist>')
-            raise SystemExit('Goodbye')
-        
-        with h5py.File(self.filename, "r") as mrd:
-            if len(mrd.keys()) > 1:
-                print('MRD file has more than one group. The last group will be imported.')
-            dataset_name = list(mrd.keys())[-1]
-            data_struct  = mrd[dataset_name]['data'][:]
-            self.xml     = mrd[dataset_name]['xml'][0]
-            self.xml_hdr = ismrmrd_xml_parser(mrd[dataset_name]['xml'][0])
-            self.hdr     = data_struct['head']
-            self.data    = data_struct['data']
-    
-    def _extract_flags(self):
-        flags = {}
-        flags['pc']         = np.bitwise_and( self.hdr['flags'] , 1 << ismrmrd.ACQ_IS_PHASECORR_DATA-1      ).astype(bool)
-        flags['nav']        = np.bitwise_and( self.hdr['flags'] , 1 << ismrmrd.ACQ_IS_NAVIGATION_DATA-1     ).astype(bool)
-        flags['iPAT']       = np.bitwise_and( self.hdr['flags'] , 1 << ismrmrd.ACQ_IS_PARALLEL_CALIBRATION-1).astype(bool)
-        flags['noise']      = np.bitwise_and( self.hdr['flags'] , 1 << ismrmrd.ACQ_IS_NOISE_MEASUREMENT-1   ).astype(bool)
-        flags['feedback']   = np.bitwise_and( self.hdr['flags'] , 1 << ismrmrd.ACQ_IS_RTFEEDBACK_DATA-1     ).astype(bool)
-        flags['image_scan'] = np.logical_not( flags['iPAT'] | flags['nav'] | flags['pc'] | flags['noise'] | flags['feedback'])
-        self.flags = flags
-
-        enc     = self.xml_hdr.encoding[0]
-        # Matrix size
-        matrix_size                = {'kspace':{}, 'image':{}}
-        matrix_size['image']['x']  = enc.reconSpace.matrixSize.x
-        matrix_size['image']['y']  = enc.reconSpace.matrixSize.y
-        matrix_size['image']['z']  = enc.reconSpace.matrixSize.z
-        matrix_size['kspace']['x'] = enc.encodedSpace.matrixSize.x
-        matrix_size['kspace']['y'] = enc.encodedSpace.matrixSize.y
-        matrix_size['kspace']['z'] = enc.encodedSpace.matrixSize.z
-        self.matrix_size = matrix_size
-
-        # Field of View
-        fov                = {'kspace':{}, 'image':{}}
-        fov['image']['x']  = enc.reconSpace.fieldOfView_mm.x
-        fov['image']['y']  = enc.reconSpace.fieldOfView_mm.y
-        fov['image']['z']  = enc.reconSpace.fieldOfView_mm.z
-        fov['kspace']['x'] = enc.encodedSpace.fieldOfView_mm.x
-        fov['kspace']['y'] = enc.encodedSpace.fieldOfView_mm.y
-        fov['kspace']['z'] = enc.encodedSpace.fieldOfView_mm.z
-        self.fov = fov
-
-        # Dimensions Size
-        self.dim_info['cha']['len'] = self.hdr['active_channels'][0]
-        self.dim_info['ro']['len']  = self.hdr['number_of_samples'][0]
-
-        if enc.encodingLimits.kspace_encoding_step_1 != None:
-            self.dim_info['pe1']['len'] = enc.encodingLimits.kspace_encoding_step_1.maximum + 1
-
-        if enc.encodingLimits.kspace_encoding_step_2 != None:
-            self.dim_info['pe2']['len'] = enc.encodingLimits.kspace_encoding_step_2.maximum + 1
-
-        if enc.encodingLimits.slice != None:
-            self.dim_info['slc']['len'] = enc.encodingLimits.slice.maximum + 1
-
-        if enc.encodingLimits.contrast != None:
-            self.dim_info['eco']['len'] = enc.encodingLimits.contrast.maximum + 1
-
-        if enc.encodingLimits.repetition != None:
-            self.dim_info['rep']['len'] = enc.encodingLimits.repetition.maximum + 1
-
-        if enc.encodingLimits.set != None:
-            self.dim_info['set']['len'] = enc.encodingLimits.set.maximum + 1
-
-        if enc.encodingLimits.set != None:
-            self.dim_info['seg']['len'] = enc.encodingLimits.segment.maximum + 1
-
-        if enc.encodingLimits.average != None:
-            self.dim_info['ave']['len'] = enc.encodingLimits.average.maximum + 1
-
-        if enc.encodingLimits.phase != None:
-            self.dim_info['phs']['len'] = enc.encodingLimits.phase.maximum + 1
-
-        self.dim_size = [1] * len(self.dim_info)
-        for i in self.dim_info.keys():
-            self.dim_size[self.dim_info[i]['ind']] = self.dim_info[i]['len']
-
-        if self.dim_info['ro']['len'] != matrix_size['kspace']['x']:
-            print(f"\033[93mNumber of RO samples ({self.dim_info['ro']['len']}) differs from expectation ({matrix_size['kspace']['x']})\033[0m")
-            
-    def _create_kspace(self):
-        dif = self.dim_info
-        dsz = self.dim_size
-        # I used here order='F' since for order='C', which is default, filling the kspace was slower. 
-        # To make order='C' fast, we need to move 'cha' and 'ro' to end of numpy array. However, we have to
-        # permute dimensions later then, which will break continuity in memory, i.e. self.kspace.flags is false
-        # for C_CONTIGUOUS and F_CONTIGUOUS
-        # dsz_p = dsz[2:] + dsz[0:2]
-        kspace = np.zeros(dsz, dtype=np.complex64)
-        for ind in tqdm(list(*np.where(self.flags['image_scan'])), desc='Filling k-space'):
-            data_tr = (self.data[ind][0::2] + 1j*self.data[ind][1::2]).reshape((dif['cha']['len'], dif['ro']['len']))
-            kspace[:,:, 
-                   self.hdr['idx']['kspace_encode_step_1'][ind],
-                   self.hdr['idx']['kspace_encode_step_2'][ind],
-                   self.hdr['idx']['slice'][ind],
-                   self.hdr['idx']['contrast'][ind],
-                   self.hdr['idx']['repetition'][ind],
-                   self.hdr['idx']['set'][ind],
-                   self.hdr['idx']['segment'][ind],
-                   self.hdr['idx']['average'][ind],
-                   self.hdr['idx']['phase'][ind]] = data_tr
-        
-        self.kspace = kspace 
 
     # applying iFFT to kspace and build image
-    def _create_image(self):
-        self.img = np.zeros(self.dim_size, dtype=np.complex64)
+    def kspace_to_image(self, kspace:np.ndarray):
+        if kspace.ndim != len(self.dim_size):
+            print(f'Error! shape is wrong. {kspace.shape} vs {self.dim_size}')
+            return
+
+        img = np.zeros_like(kspace, dtype=np.complex64)
         # this loop is slow because of order='F' and ind is in the first dimensions. see above, _create_kspace(). 
         for ind in tqdm(range(self.dim_info['cha']['len']), desc='Fourier transform'):
-            temp = self.kspace[ind,:,:,:,:,:,:,:,:,:,:]
-            self.img[ind,:,:,:,:,:,:,:,:,:,:] = ifftnd(temp, [0,1,2])        
+            img[ind,...] = ifftnd(kspace[ind,...], [0,1,2])        
+        return img
 
-    def _coil_combination(self):
-        self.img = np.sqrt(np.sum(abs(self.img)**2, self.dim_info['cha']['ind'], keepdims=True))
-        self.dim_info['cha']['len'] = 1
-        self.dim_size[self.dim_info['cha']['ind']] = 1
+    def image_to_kspace(self, img:np.ndarray):
+        if img.ndim != len(self.dim_size):
+            print(f'Error! shape is wrong. {img.shape} vs {self.dim_size}')
+            return
 
-    def _remove_oversamples(self):
-        print('Remove oversampling...')
-        cutoff = (self.dim_info['ro']['len'] - self.matrix_size['image']['x']) // 2 # // -> integer division
-        self.img = self.img[:,cutoff:-cutoff,:,:,:,:,:]
-        self.dim_info['ro']['len'] = self.img.shape[self.dim_info['ro']['ind']]
-        self.dim_size[self.dim_info['ro']['ind']] = self.dim_info['ro']['len']
+        kspace = np.zeros_like(img, dtype=np.complex64)
+        # this loop is slow because of order='F' and ind is in the first dimensions. see above, _create_kspace(). 
+        for ind in tqdm(range(self.dim_info['cha']['len']), desc='Fourier transform'):
+            kspace[ind,...] = fftnd(img[ind,...], [0,1,2])        
+        return kspace
+
+    ##########################################################
+    def coil_combination(self, volume:np.ndarray, method='sos', coil_sens=None, update_diminfo=False):
+        if volume.ndim != len(self.dim_size):
+            print(f'Input size not valid. {volume.shape} != {self.dim_size}')
+            return
+
+        all_methods = ('sos', 'espirit', 'adaptive')
+        if method.lower() not in all_methods:
+            print(f'Given method is not valid. Choose between {", ".join(all_methods)}')
+            return
         
-    def _reorder_slice(self):
-        print('Reorder slice...')
-        unsorted_order = np.zeros((self.dim_info['slc']['len']))
+
+        volume_comb = np.sqrt(np.sum(abs(volume)**2, self.dim_info['cha']['ind'], keepdims=True))
+        if method.lower() == 'espirit' and coil_sens is not None:
+            l2_reg    = 1e-4
+            volume    = np.moveaxis(volume, 0, 3) # adapting to bart CFL format
+            coil_sens = np.moveaxis(coil_sens, 0, 3) # adapting to bart CFL format
+            n_extra1  = np.prod(volume.shape[4:]) # number of extra dims  
+            n_extra2  = np.prod(volume.shape[5:]) # number of extra dims excluing slice
+            kspace    = volume.reshape(volume.shape[:4] +(-1,)) # flatten extra dims
+            volume_comb  = volume_comb.reshape(volume_comb.shape[:4] + (-1,)) # flatten extra dims
+            scale_factor = [np.percentile(volume_comb[...,ind], 99).astype(np.float32) for ind in range(volume_comb.shape[-1])]
+            recon  = [np.expand_dims(bart.bart(1, 'pics -w {} -R Q:{} -S'.format(scale_factor[ind], l2_reg), kspace[...,ind], coil_sens[...,ind%n_extra2]), axis=[0,3]) for ind in range(n_extra1)]
+            shp = [1,] + self.dim_size[1:]
+            volume_comb = np.stack(recon, axis=4).reshape(shp)
+
+        elif method.lower() == 'adaptive' and coil_sens is not None:
+            coil_sens   = np.expand_dims(coil_sens, axis=[*range(coil_sens.ndim, volume.ndim)]) # https://numpy.org/doc/stable/user/basics.broadcasting.html
+            volume_comb = np.divide(volume, coil_sens, out=np.zeros_like(coil_sens), where=coil_sens!=0)
+            volume_comb = np.sum(volume_comb, self.dim_info['cha']['ind'], keepdims=True)
+
+        if update_diminfo:
+            self.dim_info['cha']['len'] = volume_comb.shape[self.dim_info['cha']['ind']]
+            self.dim_size[self.dim_info['cha']['ind']] = self.dim_info['cha']['len']
+
+        return volume_comb
+
+    ##########################################################
+    def calc_coil_sensitivity(self, acs, method='caldir'):
+        all_methods = ('espirit', 'caldir')
+        if method.lower() not in all_methods:
+            print(f'Given method is not valid. Choose between {", ".join(all_methods)}')
+            return
+        d = self.dim_info
+        if d['cha']['ind']!=0 or d['ro']['ind']!=1 or d['pe1']['ind']!=2 or d['pe2']['ind']!=3 or d['slc']['ind']!=4:
+            print('Error! Dimension order does not fit to the desired order.')
+            return
+
+        coils_sensitivity = np.zeros_like(acs[...,0,0,0,0,0,0])
         for cslc in range(self.dim_info['slc']['len']):
-            p1 = np.linalg.solve(self.transformation['mat44'], self.transformation['soda'][cslc,:,3])
-            unsorted_order[cslc] = p1[2]
-        ind_sorted = np.argsort(unsorted_order)
-        self.img   = self.img[:,:,:,:,ind_sorted,:,:,:,:,:,:]
-        self.transformation['soda'] = self.transformation['soda'][ind_sorted,:,:]
+            kspace = np.moveaxis(acs[...,cslc,0,0,0,0,0,0], 0, 3)
+            print(kspace.shape)
+            if method.lower() == 'espirit'.lower():
+                coil_sens = bart.bart(1, 'ecalib -m 1', kspace)
+            elif method.lower() == 'caldir'.lower():
+                cal_size = np.max(kspace.shape[:3])//2
+                print(f'Input = {kspace.shape}, Calibration size = {cal_size}')
+                coil_sens = bart.bart(1, f'caldir {cal_size}', kspace)
+            coils_sensitivity[...,cslc] = np.moveaxis(coil_sens, 3, 0)
+        return coils_sensitivity
+
+    ##########################################################
+    def compress_coil(self, *kspace:np.ndarray, virtual_channels=None): 
+        # kspace[0] is the reference input to create compression matrix for all inputs, it should be GRAPPA scan for example.    
+        print('Compressing Rx channels...')
+        d = self.dim_info
+        if d['cha']['ind']!=0 or d['ro']['ind']!=1 or d['pe1']['ind']!=2 or d['pe2']['ind']!=3 or d['slc']['ind']!=4:
+            print('Error! Dimension order does not fit to the desired order.')
+            return
+
+        if virtual_channels == None:
+            virtual_channels = int(kspace[0].shape[d['cha']['ind']] * 0.75)
+
+        kspace_cfl = [np.moveaxis(kspc, 0, 3) for kspc in kspace] # adapting to bart CFL format
+        cc_matrix  = [bart.bart(1, 'bart cc -A -M', kspace_cfl[0][...,cslc,0,0,0,0,0,0]) for cslc in range(d['slc']['len'])]
+
+        kspace_compressed_cfl = []
+        for kspc in kspace_cfl:
+            n_extra1 = np.prod(kspc.shape[4:]) # number of extra dims  
+            n_extra2 = np.prod(kspc.shape[5:]) # number of extra dims excluing slice
+            kspc_r   = kspc.reshape(kspc.shape[:4] + (-1,)) # flatten extra dims
+            kspc_cc  = [bart.bart(1, f'ccapply -p {virtual_channels}', k, cc_matrix[i%n_extra2]) for k, i in zip(kspc_r, range(n_extra1))]
+            kspace_compressed_cfl.append(np.stack(kspc_cc, axis=4).reshape(kspc.shape))
+
+        kspace_compressed = [np.moveaxis(kspc, 3, 0) for kspc in kspace_compressed_cfl]
+        return (*kspace_compressed,)
+
+    ##########################################################
+    def remove_oversampling(self, img:np.ndarray, update_diminfo=False):
+        if img.ndim != len(self.dim_size):
+            print(f'Error! shape is wrong. {img.shape} vs {self.dim_size}')
+            return
+        
+        if img.shape[self.dim_info['ro']['ind']] != self.dim_info['ro']['len']:
+            print('Seems oversampling is already removed!')
+
+        print('Remove oversampling...', end=' ')
+        cutoff = (img.shape[self.dim_info['ro']['ind']] - self.matrix_size['image']['x']) // 2 # // -> integer division
+        img = np.take(img, np.arange(cutoff, cutoff+self.matrix_size['image']['x']), axis=self.dim_info['ro']['ind']) # img[:,cutoff:-cutoff,...]
+
+        if update_diminfo:
+            self.dim_info['ro']['len'] = img.shape[self.dim_info['ro']['ind']]
+            self.dim_size[self.dim_info['ro']['ind']] = self.dim_info['ro']['len']
+        print('Done.')
+        return img
+        
 
     # Tasks to be executed before coils combination
     def _custom_task(self):
         pass
     
-    # Coordinate transformation
-    def _extract_transformation(self):
-        hdr = self.hdr
-        transformation = {}
-        transformation['soda'] = np.zeros((self.dim_info['slc']['len'], 4, 4))
-        offcenter = np.zeros(3)
-        for cslc in range(self.dim_info['slc']['len']):
-            ind = np.where((hdr['idx']['slice'] == cslc) & self.flags['image_scan'])[0]
-            if len(ind) == 0:
-                print(f"\033[91mslice index not found! aborting...\033[0m")
-                raise SystemExit('Goodbye')
-            
-            dcm = np.column_stack((hdr['phase_dir'][ind[0],:], 
-                                   hdr['read_dir'] [ind[0],:], 
-                                   hdr['slice_dir'][ind[0],:]))
 
-            transformation['soda'][cslc,0:3,:] = np.column_stack((dcm, hdr['position'][ind[0],:]))
-            transformation['soda'][cslc,:,:]   = np.row_stack((transformation['soda'][cslc,0:3,:], [0, 0, 0, 1]))           
-            offcenter += hdr['position'][ind[0],:]
-
-        offcenter /= self.dim_info['slc']['len']
-        transformation['offcenter']     = offcenter 
-        transformation['mat44']         = transformation['soda'][0,:,:] 
-        transformation['mat44'][0:3,3]  = offcenter
-        self.transformation = transformation
 
     # Squeezing image data
-    def sqz(self):
-        print('Squeezing...')
-        for key in list(self.dim_info):
-            if self.dim_info[key]['len'] == 1:                
-                self.dim_info.pop(key, None)
-        # refine dimensions index, assuimg sorted dictionary (Python > 3.7)
-        l = list(self.dim_info.items())
-        for i in range(len(self.dim_info)):
-            self.dim_info[l[i][0]]['ind'] = i
+    # def sqz(self):
+    #     print('Squeezing...')
+    #     for key in list(self.dim_info):
+    #         if self.dim_info[key]['len'] == 1:                
+    #             self.dim_info.pop(key, None)
+    #     # refine dimensions index, assuimg sorted dictionary (Python > 3.7)
+    #     l = list(self.dim_info.items())
+    #     for i in range(len(self.dim_info)):
+    #         self.dim_info[l[i][0]]['ind'] = i
         
-        self.dim_size = [y for y in self.dim_size if y!=1]
-        self.img = np.squeeze(self.img)
+    #     self.dim_size = [y for y in self.dim_size if y!=1]
+    #     self.img = np.squeeze(self.img)
 
     # Save a custom volume as nifti
     def make_nifti(self, volume, filename):
