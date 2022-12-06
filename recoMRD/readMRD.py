@@ -20,6 +20,7 @@ class readMRD(object):
     matrix_size       = None
     transformation    = None
     isParallelImaging = False
+    acceleration_factor = [1,1]
 
     
     def __init__(self, filename=None):   
@@ -128,7 +129,9 @@ class readMRD(object):
         if self.dim_info['ro']['len'] != matrix_size['kspace']['x']:
             print(f"\033[93mNumber of RO samples ({self.dim_info['ro']['len']}) differs from expectation ({matrix_size['kspace']['x']})\033[0m")
 
-        self.isParallelImaging = flags['acs'].any()
+        self.acceleration_factor = [enc.parallelImaging.accelerationFactor.kspace_encoding_step_1, enc.parallelImaging.accelerationFactor.kspace_encoding_step_2]
+        if self.acceleration_factor[0] > 1 or self.acceleration_factor[1] > 1 :
+            print(f'Acceleration factor: {self.acceleration_factor[0]} x {self.acceleration_factor[1]}')
         self.is3D = bool(self.dim_info['pe2']['len'] - 1)
 
 
@@ -141,7 +144,7 @@ class readMRD(object):
         # for C_CONTIGUOUS and F_CONTIGUOUS
         # dsz_p = dsz[2:] + dsz[0:2]
         existing_scans = [scan for scan in self.flags if self.flags[scan].any()]
-        print(f'Existing scans: {", ".join(existing_scans)}')
+        print(f'Existing scans: {", ".join(existing_scans)}.')
 
         kspace = np.zeros(dsz, dtype=np.complex64)
         for scan_type in existing_scans:           
@@ -158,7 +161,8 @@ class readMRD(object):
                        self.hdr['idx']['average'][ind],
                        self.hdr['idx']['phase'][ind]] = data_tr
             self.kspace[scan_type] = kspace.copy()  
-    
+
+
 
     def _reorder_slice(self):
         print('Reorder slice...', end=' ')
