@@ -31,19 +31,14 @@ class recoMRD_B0(recoMRD):
         self.dim_info['eco']['len'] = 1
         self.dim_size[self.dim_info['eco']['ind']] = 1
 
+    ##########################################################
     def get_b0hz(self, scale = 1, offset = 0):
         if self.img_b0_uw.shape != self.img_b0.shape:
             print(f"\033[93mUnwrapped image is not yet calculated. \033[0m")
             return None
         return (scale*self.img_b0_uw + offset) / self.dTE[0] / (2*np.pi)
 
-    # def sqz(self):
-    #     super().sqz() # update boundries
-    #     self.img_b0     = self.img_b0.squeeze()
-    #     self.img_mag    = self.img_mag.squeeze()
-    #     self.img_mask   = self.img_mask.squeeze()
-    #     self.img_b0_uw  = self.img_b0_uw.squeeze()
-
+    ##########################################################
     def unwrap_b0(self):
         print('Unwrapping B0...')
         b0_size = [x for x in self.img_b0.shape if x > 1]
@@ -63,7 +58,7 @@ class recoMRD_B0(recoMRD):
         handle.unwrap_b0(b0, b0_uw, *b0_size) # 3D and 4D input  
         self.img_b0_uw =  b0_uw.copy(order='C') 
                      
-
+    ##########################################################
     def create_mask(self, erode_size = 3):
         print('Creating mask...')
         mask_size = [x for x in self.img_mag.shape if x > 1]

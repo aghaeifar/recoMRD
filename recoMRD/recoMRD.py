@@ -26,7 +26,7 @@ def fftnd(img:np.ndarray, axes=[-1]):
 
 
 class recoMRD(readMRD):    
-    img    = None
+    img = None
   
     def __init__(self, filename=None):   
         super().__init__(filename)
@@ -35,7 +35,6 @@ class recoMRD(readMRD):
     def runReco(self):
         self.img = self.kspace_to_image(self.kspace['image_scan'])
         self.img = self.remove_oversampling(self.img)
-        self._custom_task()
         self.img = self.coil_combination(self.img, method='sos')
 
 
@@ -68,14 +67,14 @@ class recoMRD(readMRD):
             print(f'Input size not valid. {volume.shape} != {self.dim_size}')
             return
 
-        all_methods = ('sos', 'espirit', 'adaptive')
+        all_methods = ('sos', 'bart', 'adaptive')
         if method.lower() not in all_methods:
             print(f'Given method is not valid. Choose between {", ".join(all_methods)}')
             return
         
 
         volume_comb = np.sqrt(np.sum(abs(volume)**2, self.dim_info['cha']['ind'], keepdims=True))
-        if method.lower() == 'espirit' and coil_sens is not None:
+        if method.lower() == 'bart' and coil_sens is not None:
             l2_reg    = 1e-4
             volume    = np.moveaxis(volume, 0, 3) # adapting to bart CFL format
             coil_sens = np.moveaxis(coil_sens, 0, 3) # adapting to bart CFL format
@@ -113,7 +112,6 @@ class recoMRD(readMRD):
         coils_sensitivity = np.zeros_like(acs[...,0,0,0,0,0,0])
         for cslc in range(self.dim_info['slc']['len']):
             kspace = np.moveaxis(acs[...,cslc,0,0,0,0,0,0], 0, 3)
-            print(kspace.shape)
             if method.lower() == 'espirit'.lower():
                 coil_sens = bart.bart(1, 'ecalib -m 1', kspace)
             elif method.lower() == 'caldir'.lower():
@@ -168,27 +166,7 @@ class recoMRD(readMRD):
         print('Done.')
         return img
         
-
-    # Tasks to be executed before coils combination
-    def _custom_task(self):
-        pass
-    
-
-
-    # Squeezing image data
-    # def sqz(self):
-    #     print('Squeezing...')
-    #     for key in list(self.dim_info):
-    #         if self.dim_info[key]['len'] == 1:                
-    #             self.dim_info.pop(key, None)
-    #     # refine dimensions index, assuimg sorted dictionary (Python > 3.7)
-    #     l = list(self.dim_info.items())
-    #     for i in range(len(self.dim_info)):
-    #         self.dim_info[l[i][0]]['ind'] = i
-        
-    #     self.dim_size = [y for y in self.dim_size if y!=1]
-    #     self.img = np.squeeze(self.img)
-
+    ##########################################################
     # Save a custom volume as nifti
     def make_nifti(self, volume, filename):
         
