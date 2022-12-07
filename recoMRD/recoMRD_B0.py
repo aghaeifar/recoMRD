@@ -1,7 +1,7 @@
 import os
 import ctypes
 import numpy as np
-from recoMRD import recoMRD
+from .recoMRD import recoMRD
 from scipy import ndimage
 
 class recoMRD_B0(recoMRD):

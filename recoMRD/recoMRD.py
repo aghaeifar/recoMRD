@@ -4,7 +4,7 @@ import numpy as np
 import nibabel as nib
 from bart import bart
 from tqdm import tqdm
-from recoMRD import readMRD
+from .readMRD import readMRD
 
 
 # ifftnd and fftnd are taken from twixtools package

@@ -1,7 +1,7 @@
 import os
 import ctypes
 import numpy as np
-from recoMRD import recoMRD
+from .recoMRD import recoMRD
 from scipy import ndimage
 
 class recoMRD_B1TFL(recoMRD):
@@ -13,17 +13,11 @@ class recoMRD_B1TFL(recoMRD):
 
     def __init__(self, filename=None):
         super().__init__(filename)
-        super().runReco()
+        
 
     def _custom_task(self):
         pass
 
-    def sqz(self):
-        super().sqz() # update boundries
-        self.img_b1mag = self.img_b1mag.squeeze()
-        self.img_b1phs = self.img_b1phs.squeeze()
-        self.img_mask  = self.img_mask.squeeze()
-        self.img_cp    = self.img_cp.squeeze()
     
     def create_mask(self, erode_size = 3):
         print('Creating mask...')
