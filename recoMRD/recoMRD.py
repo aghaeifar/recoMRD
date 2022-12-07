@@ -1,5 +1,5 @@
 import os
-import sys
+import ctypes
 import numpy as np
 import nibabel as nib
 from bart import bart
@@ -100,7 +100,7 @@ class recoMRD(readMRD):
 
     ##########################################################
     def calc_coil_sensitivity(self, acs, method='caldir'):
-        all_methods = ('espirit', 'caldir')
+        all_methods = ('espirit', 'caldir', 'walsh')
         if method.lower() not in all_methods:
             print(f'Given method is not valid. Choose between {", ".join(all_methods)}')
             return
@@ -110,15 +110,37 @@ class recoMRD(readMRD):
             return
 
         coils_sensitivity = np.zeros_like(acs[...,0,0,0,0,0,0])
-        for cslc in range(self.dim_info['slc']['len']):
-            kspace = np.moveaxis(acs[...,cslc,0,0,0,0,0,0], 0, 3)
-            if method.lower() == 'espirit'.lower():
-                coil_sens = bart.bart(1, 'ecalib -m 1', kspace)
-            elif method.lower() == 'caldir'.lower():
-                cal_size = np.max(kspace.shape[:3])//2
-                print(f'Input = {kspace.shape}, Calibration size = {cal_size}')
-                coil_sens = bart.bart(1, f'caldir {cal_size}', kspace)
-            coils_sensitivity[...,cslc] = np.moveaxis(coil_sens, 3, 0)
+        if method.lower() == 'espirit'.lower():
+            for cslc in range(self.dim_info['slc']['len']):
+                kspace      = np.moveaxis(acs[...,cslc,0,0,0,0,0,0], 0, 3)
+                coil_sens   = bart.bart(1, 'ecalib -m 1', kspace)
+                coils_sensitivity[...,cslc] = np.moveaxis(coil_sens, 3, 0)
+        elif method.lower() == 'caldir'.lower():
+            for cslc in range(self.dim_info['slc']['len']):
+                kspace      = np.moveaxis(acs[...,cslc,0,0,0,0,0,0], 0, 3)
+                cal_size    = np.max(kspace.shape[:3])//2
+                coil_sens   = bart.bart(1, f'caldir {cal_size}', kspace)
+                coils_sensitivity[...,cslc] = np.moveaxis(coil_sens, 3, 0)
+        elif method.lower() == 'walsh'.lower():
+            dir_path = os.path.dirname(os.path.realpath(__file__))
+            handle   = ctypes.CDLL(os.path.join(dir_path, "lib", "libwalsh.so")) 
+            handle.adaptive_combine.argtypes = [np.ctypeslib.ndpointer(np.complex64, ndim=4, flags='F'),
+                                                np.ctypeslib.ndpointer(np.complex64, ndim=4, flags='F'),
+                                                np.ctypeslib.ndpointer(np.float32, ndim=3, flags='F'),
+                                                ctypes.POINTER(ctypes.c_int), 
+                                                ctypes.POINTER(ctypes.c_int), 
+                                                ctypes.POINTER(ctypes.c_int),
+                                                ctypes.c_int, ctypes.c_bool]
+            acs = acs[...,0,0,0,0,0,0].squeeze().copy(order='F')
+            weights = np.zeros_like(acs, dtype=np.complex64, order='F')  
+            norm = np.zeros_like(acs[0,...], dtype=np.float32, order='F')    
+            n = list(acs.shape)
+            ks = [7, 7, 3]
+            st = [1, 1, 1]
+            nc_svd = -1
+            handle.adaptive_combine(acs, weights, norm, (ctypes.c_int*4)(*n), (ctypes.c_int*3)(*ks), (ctypes.c_int*3)(*st), nc_svd, False) # 3D and 4D input
+            coils_sensitivity = weights.copy(order='C').reshape(coils_sensitivity.shape)
+            
         return coils_sensitivity
 
     ##########################################################
