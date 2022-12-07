@@ -16,10 +16,13 @@ class readMRD(object):
     dim_info = None
     dim_size = None    
     is3D     = False
+    tags     = {}
+    ismrmrd_tags = {}
     kspace   = {}  
     matrix_size       = None
     transformation    = None
     isParallelImaging = False
+    isRefScanSeparate = False
     acceleration_factor = [1,1]
 
     
@@ -28,18 +31,21 @@ class readMRD(object):
             raise SystemExit('Python version >= 3.7.x is required. Aborting...')
 
         self.filename  = filename                
-        tags = ['cha', 'ro', 'pe1', 'pe2', 'slc', 'eco', 'rep', 'set', 'seg', 'ave', 'phs'] # order matters here
+        self.tags = ['cha', 'ro', 'pe1', 'pe2', 'slc', 'eco', 'rep', 'set', 'seg', 'ave', 'phs'] # order matters here
+        self.ismrmrd_tags = ['', '', 'kspace_encode_step_1', 'kspace_encode_step_2', 'slice', 'contrast', 'repetition', 'set', 'segment', 'average', 'phase']
+
         self.dim_info = {}
-        for i in range(len(tags)):
-            self.dim_info[tags[i]] = {}
-            self.dim_info[tags[i]]['len']  = 1
-            self.dim_info[tags[i]]['ind'] = i
+        for i in range(len(self.tags)):
+            self.dim_info[self.tags[i]] = {}
+            self.dim_info[self.tags[i]]['len']  = 1
+            self.dim_info[self.tags[i]]['ind'] = i
 
         self._import_mrd()
         self._extract_flags()
         self._create_kspace()
         self._extract_transformation()
-        self._reorder_slice()
+        if self.is3D == False:
+            self._reorder_slice()
 
 
     def _import_mrd(self):
@@ -69,6 +75,8 @@ class readMRD(object):
         # update acs, to include ACQ_IS_PARALLEL_CALIBRATION_AND_IMAGING
         flags['acs']       |= np.bitwise_and( self.hdr['flags'] , 1 << ismrmrd.ACQ_IS_PARALLEL_CALIBRATION_AND_IMAGING-1).astype(bool)
         self.flags = flags
+        print('Number of reference scans: {}'.format(np.count_nonzero(flags['acs'])))
+        print('Number of image scans: {}'.format(np.count_nonzero(flags['image_scan'])))
 
         enc     = self.xml_hdr.encoding[0]
         # Matrix size
@@ -93,13 +101,19 @@ class readMRD(object):
 
         # Dimensions Size
         self.dim_info['cha']['len'] = self.hdr['active_channels'][0]
-        self.dim_info['ro']['len']  = self.hdr['number_of_samples'][0]
+        self.dim_info['ro']['len']  = matrix_size['kspace']['x'] # self.hdr['number_of_samples'][0]
 
         if enc.encodingLimits.kspace_encoding_step_1 != None:
             self.dim_info['pe1']['len'] = enc.encodingLimits.kspace_encoding_step_1.maximum + 1
+            if self.dim_info['pe1']['len'] + 1 == matrix_size['kspace']['y']:
+                self.dim_info['pe1']['len'] +=1
+                print('Trying to correct PE1 length. Let\'s hope it is right!') 
 
         if enc.encodingLimits.kspace_encoding_step_2 != None:
             self.dim_info['pe2']['len'] = enc.encodingLimits.kspace_encoding_step_2.maximum + 1
+            if self.dim_info['pe2']['len'] + 1 == matrix_size['kspace']['z']:
+                self.dim_info['pe2']['len'] +=1
+                print('Trying to correct PE2 length. Let\'s hope it is right!') 
 
         if enc.encodingLimits.slice != None:
             self.dim_info['slc']['len'] = enc.encodingLimits.slice.maximum + 1
@@ -132,37 +146,56 @@ class readMRD(object):
         self.acceleration_factor = [enc.parallelImaging.accelerationFactor.kspace_encoding_step_1, enc.parallelImaging.accelerationFactor.kspace_encoding_step_2]
         if self.acceleration_factor[0] > 1 or self.acceleration_factor[1] > 1 :
             print(f'Acceleration factor: {self.acceleration_factor[0]} x {self.acceleration_factor[1]}')
+            if np.bitwise_and( self.hdr['flags'] , 1 << ismrmrd.ACQ_IS_PARALLEL_CALIBRATION_AND_IMAGING-1).astype(bool).any():
+                self.isRefScanSeparate = False
+                print('Reference scan type: integrated')
+            else:
+                self.isRefScanSeparate = True
+                print('Reference scan type: separate')
+
         self.is3D = bool(self.dim_info['pe2']['len'] - 1)
 
 
     def _create_kspace(self):
         dif = self.dim_info
         dsz = self.dim_size
-        # I used here order='F' since for order='C', which is default, filling the kspace was slower. 
-        # To make order='C' fast, we need to move 'cha' and 'ro' to end of numpy array. However, we have to
-        # permute dimensions later then, which will break continuity in memory, i.e. self.kspace.flags is false
-        # for C_CONTIGUOUS and F_CONTIGUOUS
-        # dsz_p = dsz[2:] + dsz[0:2]
         existing_scans = [scan for scan in self.flags if self.flags[scan].any()]
         print(f'Existing scans: {", ".join(existing_scans)}.')
 
-        kspace = np.zeros(dsz, dtype=np.complex64)
-        for scan_type in existing_scans:           
-            for ind in tqdm(list(*np.where(self.flags[scan_type])), desc='Filling {}'.format(scan_type)):
-                data_tr = (self.data[ind][0::2] + 1j*self.data[ind][1::2])
-                data_tr = data_tr.reshape(dif['cha']['len'], data_tr.size // dif['cha']['len']) # didn't use dif['ro']['len'] because of possible asymmetric-echo
-                kspace[:,:data_tr.shape[1], 
-                       self.hdr['idx']['kspace_encode_step_1'][ind],
-                       self.hdr['idx']['kspace_encode_step_2'][ind],
-                       self.hdr['idx']['slice'][ind],
-                       self.hdr['idx']['contrast'][ind],
-                       self.hdr['idx']['repetition'][ind],
-                       self.hdr['idx']['set'][ind],
-                       self.hdr['idx']['segment'][ind],
-                       self.hdr['idx']['average'][ind],
-                       self.hdr['idx']['phase'][ind]] = data_tr
-            self.kspace[scan_type] = kspace.copy()  
+        print(f'Fully sampled size={dsz}')
+        for scan_type in existing_scans: 
+            ind_scan = list(*np.where(self.flags[scan_type]))            
+            dsz_l = dsz[:] # copy a list, 
+            dsz_l[dif['ro']['ind']] = self.hdr['number_of_samples'][ind_scan[0]]
+            for tg in range(dif['ro']['ind']+1, len(self.tags)):
+                dsz_l[dif[self.tags[tg]]['ind']] = len(np.unique(self.hdr['idx'][self.ismrmrd_tags[tg]][ind_scan]))
 
+            ind_pe1_min = 0
+            ind_pe2_min = 0
+            if scan_type != 'image_scan':
+                self.kspace[scan_type] = np.zeros(dsz_l, dtype=np.complex64)   
+                if scan_type == 'acs':
+                    ind_pe1_min = np.min(self.hdr['idx']['kspace_encode_step_1'][ind_scan])
+                    ind_pe2_min = np.min(self.hdr['idx']['kspace_encode_step_2'][ind_scan])    
+            else:
+                self.kspace[scan_type] = np.zeros(dsz, dtype=np.complex64)  
+                
+            for ind in tqdm(list(*np.where(self.flags[scan_type])), desc=f'Filling {scan_type:<10}, size={dsz_l}'):
+                data_tr = (self.data[ind][0::2] + 1j*self.data[ind][1::2]).reshape(dsz_l[dif['cha']['ind']], dsz_l[dif['ro']['ind']])
+                self.kspace[scan_type][:,:dsz_l[dif['ro']['ind']],  # dsz_l[dif['ro']['ind']] is needed for asymmetric echo
+                                        self.hdr['idx']['kspace_encode_step_1'][ind]-ind_pe1_min,
+                                        self.hdr['idx']['kspace_encode_step_2'][ind]-ind_pe2_min,
+                                        self.hdr['idx']['slice'][ind],
+                                        self.hdr['idx']['contrast'][ind],
+                                        self.hdr['idx']['repetition'][ind],
+                                        self.hdr['idx']['set'][ind],
+                                        self.hdr['idx']['segment'][ind],
+                                        self.hdr['idx']['average'][ind],
+                                        self.hdr['idx']['phase'][ind]] = data_tr
+            if scan_type == 'acs':
+                print(f'Padding reference scan to match the size of image scan. {dsz_l[0:4]} -> {dsz[0:4]}')
+                shp = (np.array(dsz) - np.array(dsz_l)) // 2
+                self.kspace[scan_type] = np.pad(self.kspace[scan_type], [(shp[0],), (shp[1],), (shp[2],), (shp[3],), (0,) , (0,) , (0,) , (0,) , (0,) , (0,) , (0,)], mode='constant')
 
 
     def _reorder_slice(self):
@@ -173,7 +206,8 @@ class readMRD(object):
             unsorted_order[cslc] = p1[2]
         ind_sorted = np.argsort(unsorted_order)
         for scan in self.kspace:
-            self.kspace[scan] = self.kspace[scan][:,:,:,:,ind_sorted,...]
+            if scan == 'image_scan' or scan == 'acs':
+                self.kspace[scan] = self.kspace[scan][:,:,:,:,ind_sorted,...]
 
         self.transformation['soda'] = self.transformation['soda'][ind_sorted,...]
         print('Done.')
