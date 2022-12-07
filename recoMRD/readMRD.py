@@ -149,8 +149,9 @@ class readMRD(object):
         kspace = np.zeros(dsz, dtype=np.complex64)
         for scan_type in existing_scans:           
             for ind in tqdm(list(*np.where(self.flags[scan_type])), desc='Filling {}'.format(scan_type)):
-                data_tr = (self.data[ind][0::2] + 1j*self.data[ind][1::2]).reshape((dif['cha']['len'], dif['ro']['len']))
-                kspace[:,:, 
+                data_tr = (self.data[ind][0::2] + 1j*self.data[ind][1::2])
+                data_tr = data_tr.reshape(dif['cha']['len'], data_tr.size // dif['cha']['len']) # didn't use dif['ro']['len'] because of possible asymmetric-echo
+                kspace[:,:data_tr.shape[1], 
                        self.hdr['idx']['kspace_encode_step_1'][ind],
                        self.hdr['idx']['kspace_encode_step_2'][ind],
                        self.hdr['idx']['slice'][ind],
