@@ -88,6 +88,8 @@ class readMRD(object):
         matrix_size['kspace']['y'] = enc.encodedSpace.matrixSize.y
         matrix_size['kspace']['z'] = enc.encodedSpace.matrixSize.z
         self.matrix_size = matrix_size
+        print(f'k-space size: {matrix_size["kspace"]["x"]} x {matrix_size["kspace"]["y"]} x {matrix_size["kspace"]["z"]}')
+        print(f'image size: {matrix_size["image"]["x"]} x {matrix_size["image"]["y"]} x {matrix_size["image"]["z"]}')
 
         # Field of View
         fov                = {'kspace':{}, 'image':{}}
@@ -105,15 +107,9 @@ class readMRD(object):
 
         if enc.encodingLimits.kspace_encoding_step_1 != None:
             self.dim_info['pe1']['len'] = enc.encodingLimits.kspace_encoding_step_1.maximum + 1
-            if self.dim_info['pe1']['len'] + 1 == matrix_size['kspace']['y']:
-                self.dim_info['pe1']['len'] +=1
-                print('Trying to correct PE1 length. Let\'s hope it is right!') 
 
         if enc.encodingLimits.kspace_encoding_step_2 != None:
             self.dim_info['pe2']['len'] = enc.encodingLimits.kspace_encoding_step_2.maximum + 1
-            if self.dim_info['pe2']['len'] + 1 == matrix_size['kspace']['z']:
-                self.dim_info['pe2']['len'] +=1
-                print('Trying to correct PE2 length. Let\'s hope it is right!') 
 
         if enc.encodingLimits.slice != None:
             self.dim_info['slc']['len'] = enc.encodingLimits.slice.maximum + 1
@@ -140,8 +136,12 @@ class readMRD(object):
         for i in self.dim_info.keys():
             self.dim_size[self.dim_info[i]['ind']] = self.dim_info[i]['len']
 
-        if self.dim_info['ro']['len'] != matrix_size['kspace']['x']:
-            print(f"\033[93mNumber of RO samples ({self.dim_info['ro']['len']}) differs from expectation ({matrix_size['kspace']['x']})\033[0m")
+        if (self.dim_info['ro']['len']  != matrix_size['kspace']['x'] or 
+            self.dim_info['pe1']['len'] != matrix_size['kspace']['y'] or 
+            self.dim_info['pe2']['len'] != matrix_size['kspace']['z']   ):
+            print(f'\033[93mNumber of encoding samples ({self.dim_info["ro"]["len"]} x {self.dim_info["pe1"]["len"]} x {self.dim_info["pe2"]["len"]}) ' 
+                  f'differs from expectation ({matrix_size["kspace"]["x"]} x {matrix_size["kspace"]["y"]} x {matrix_size["kspace"]["z"]})\033[0m')
+            print('\033[93mIt can be due to parallel imaging, partial Fourier, etc. Zero padding should be performed to correct the matrix size.\033[0m')
 
         self.acceleration_factor = [enc.parallelImaging.accelerationFactor.kspace_encoding_step_1, enc.parallelImaging.accelerationFactor.kspace_encoding_step_2]
         if self.acceleration_factor[0] > 1 or self.acceleration_factor[1] > 1 :
@@ -192,10 +192,10 @@ class readMRD(object):
                                         self.hdr['idx']['segment'][ind],
                                         self.hdr['idx']['average'][ind],
                                         self.hdr['idx']['phase'][ind]] = data_tr
-            if scan_type == 'acs':
-                print(f'Padding reference scan to match the size of image scan. {dsz_l[0:4]} -> {dsz[0:4]}')
-                shp = (np.array(dsz) - np.array(dsz_l)) // 2
-                self.kspace[scan_type] = np.pad(self.kspace[scan_type], [(shp[0],), (shp[1],), (shp[2],), (shp[3],), (0,) , (0,) , (0,) , (0,) , (0,) , (0,) , (0,)], mode='constant')
+            # if scan_type == 'acs':
+            #     print(f'Padding reference scan to match the size of image scan. {dsz_l[0:4]} -> {dsz[0:4]}')
+            #     shp = (np.array(dsz) - np.array(dsz_l)) // 2
+            #     self.kspace[scan_type] = np.pad(self.kspace[scan_type], [(shp[0],), (shp[1],), (shp[2],), (shp[3],), (0,) , (0,) , (0,) , (0,) , (0,) , (0,) , (0,)], mode='constant')
 
 
     def _reorder_slice(self):
