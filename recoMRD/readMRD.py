@@ -16,13 +16,16 @@ class readMRD(object):
     dim_info = None
     dim_size = None    
     is3D     = False
-    tags     = {}
-    ismrmrd_tags = {}
-    kspace   = {}  
-    matrix_size       = None
-    transformation    = None
-    isParallelImaging = False
-    isRefScanSeparate = False
+    kspace   = {}         
+    matrix_size         = None
+    readmrd_tags        = {}
+    ismrmrd_tags        = {} 
+    transformation      = None
+    isParallelImaging   = False
+    isRefScanSeparate   = False
+    isPartialFourierRO  = False
+    isPartialFourierPE1 = None
+    isPartialFourierPE2 = None
     acceleration_factor = [1,1]
 
     
@@ -31,14 +34,14 @@ class readMRD(object):
             raise SystemExit('Python version >= 3.7.x is required. Aborting...')
 
         self.filename  = filename                
-        self.tags = ['cha', 'ro', 'pe1', 'pe2', 'slc', 'eco', 'rep', 'set', 'seg', 'ave', 'phs'] # order matters here
+        self.readmrd_tags = ['cha', 'ro', 'pe1', 'pe2', 'slc', 'eco', 'rep', 'set', 'seg', 'ave', 'phs'] # order matters here
         self.ismrmrd_tags = ['', '', 'kspace_encode_step_1', 'kspace_encode_step_2', 'slice', 'contrast', 'repetition', 'set', 'segment', 'average', 'phase']
-
+        self.kspace = {}
         self.dim_info = {}
-        for i in range(len(self.tags)):
-            self.dim_info[self.tags[i]] = {}
-            self.dim_info[self.tags[i]]['len']  = 1
-            self.dim_info[self.tags[i]]['ind'] = i
+        for i in range(len(self.readmrd_tags)):
+            self.dim_info[self.readmrd_tags[i]] = {}
+            self.dim_info[self.readmrd_tags[i]]['len'] = 1
+            self.dim_info[self.readmrd_tags[i]]['ind'] = i
 
         self._import_mrd()
         self._extract_flags()
@@ -76,7 +79,7 @@ class readMRD(object):
         flags['acs']       |= np.bitwise_and( self.hdr['flags'] , 1 << ismrmrd.ACQ_IS_PARALLEL_CALIBRATION_AND_IMAGING-1).astype(bool)
         self.flags = flags
         print('Number of reference scans: {}'.format(np.count_nonzero(flags['acs'])))
-        print('Number of image scans: {}'.format(np.count_nonzero(flags['image_scan'])))
+        print('Number of image     scans: {}'.format(np.count_nonzero(flags['image_scan'])))
 
         enc     = self.xml_hdr.encoding[0]
         # Matrix size
@@ -88,8 +91,8 @@ class readMRD(object):
         matrix_size['kspace']['y'] = enc.encodedSpace.matrixSize.y
         matrix_size['kspace']['z'] = enc.encodedSpace.matrixSize.z
         self.matrix_size = matrix_size
-        print(f'k-space size: {matrix_size["kspace"]["x"]} x {matrix_size["kspace"]["y"]} x {matrix_size["kspace"]["z"]}')
-        print(f'image size: {matrix_size["image"]["x"]} x {matrix_size["image"]["y"]} x {matrix_size["image"]["z"]}')
+        print(f'k-space size in protocol: {matrix_size["kspace"]["x"]} x {matrix_size["kspace"]["y"]} x {matrix_size["kspace"]["z"]}')
+        print(f'image   size in protocol: {matrix_size["image"]["x"]} x {matrix_size["image"]["y"]} x {matrix_size["image"]["z"]}')
 
         # Field of View
         fov                = {'kspace':{}, 'image':{}}
@@ -106,22 +109,16 @@ class readMRD(object):
         self.dim_info['ro']['len']  = matrix_size['kspace']['x'] # self.hdr['number_of_samples'][0]
 
         if enc.encodingLimits.kspace_encoding_step_1 != None:
-            self.dim_info['pe1']['len'] = enc.encodingLimits.kspace_encoding_step_1.maximum + 1
+            self.dim_info['pe1']['len'] = matrix_size['kspace']['y'] # enc.encodingLimits.kspace_encoding_step_1.maximum + 1
 
         if enc.encodingLimits.kspace_encoding_step_2 != None:
-            self.dim_info['pe2']['len'] = enc.encodingLimits.kspace_encoding_step_2.maximum + 1
-
-        if enc.encodingLimits.slice != None:
-            self.dim_info['slc']['len'] = enc.encodingLimits.slice.maximum + 1
-
-        if enc.encodingLimits.contrast != None:
-            self.dim_info['eco']['len'] = enc.encodingLimits.contrast.maximum + 1
-
+            self.dim_info['pe2']['len'] = matrix_size['kspace']['z'] # enc.encodingLimits.kspace_encoding_step_2.maximum + 1
+        
         if enc.encodingLimits.repetition != None:
             self.dim_info['rep']['len'] = enc.encodingLimits.repetition.maximum + 1
 
-        if enc.encodingLimits.set != None:
-            self.dim_info['set']['len'] = enc.encodingLimits.set.maximum + 1
+        if enc.encodingLimits.contrast != None:
+            self.dim_info['eco']['len'] = enc.encodingLimits.contrast.maximum + 1
 
         if enc.encodingLimits.set != None:
             self.dim_info['seg']['len'] = enc.encodingLimits.segment.maximum + 1
@@ -129,19 +126,25 @@ class readMRD(object):
         if enc.encodingLimits.average != None:
             self.dim_info['ave']['len'] = enc.encodingLimits.average.maximum + 1
 
+        if enc.encodingLimits.slice != None:
+            self.dim_info['slc']['len'] = enc.encodingLimits.slice.maximum + 1
+
         if enc.encodingLimits.phase != None:
             self.dim_info['phs']['len'] = enc.encodingLimits.phase.maximum + 1
+
+        if enc.encodingLimits.set != None:
+            self.dim_info['set']['len'] = enc.encodingLimits.set.maximum + 1
 
         self.dim_size = [1] * len(self.dim_info)
         for i in self.dim_info.keys():
             self.dim_size[self.dim_info[i]['ind']] = self.dim_info[i]['len']
 
-        if (self.dim_info['ro']['len']  != matrix_size['kspace']['x'] or 
-            self.dim_info['pe1']['len'] != matrix_size['kspace']['y'] or 
-            self.dim_info['pe2']['len'] != matrix_size['kspace']['z']   ):
-            print(f'\033[93mNumber of encoding samples ({self.dim_info["ro"]["len"]} x {self.dim_info["pe1"]["len"]} x {self.dim_info["pe2"]["len"]}) ' 
-                  f'differs from expectation ({matrix_size["kspace"]["x"]} x {matrix_size["kspace"]["y"]} x {matrix_size["kspace"]["z"]})\033[0m')
-            print('\033[93mIt can be due to parallel imaging, partial Fourier, etc. Zero padding should be performed to correct the matrix size.\033[0m')
+        if (self.dim_info['pe1']['len'] != enc.encodingLimits.kspace_encoding_step_1.maximum + 1 or 
+            self.dim_info['pe2']['len'] != enc.encodingLimits.kspace_encoding_step_2.maximum + 1  ):
+            print(f'\033[93mk-space encoding size ({self.dim_info["pe1"]["len"]} x {self.dim_info["pe2"]["len"]}) ' 
+                  f'differs from max encoding step ({enc.encodingLimits.kspace_encoding_step_1.maximum + 1} x {enc.encodingLimits.kspace_encoding_step_2.maximum + 1})\033[0m')
+            print('\033[93mThis can be due to parallel imaging, partial Fourier, etc.\033[0m')
+
 
         self.acceleration_factor = [enc.parallelImaging.accelerationFactor.kspace_encoding_step_1, enc.parallelImaging.accelerationFactor.kspace_encoding_step_2]
         if self.acceleration_factor[0] > 1 or self.acceleration_factor[1] > 1 :
@@ -157,32 +160,40 @@ class readMRD(object):
 
 
     def _create_kspace(self):
-        dif = self.dim_info
-        dsz = self.dim_size
+        dim_inf = self.dim_info
+        dim_sz  = self.dim_size
         existing_scans = [scan for scan in self.flags if self.flags[scan].any()]
         print(f'Existing scans: {", ".join(existing_scans)}.')
 
-        print(f'Fully sampled size={dsz}')
+        print(f'Fully sampled array size={dim_sz}')
         for scan_type in existing_scans: 
-            ind_scan = list(*np.where(self.flags[scan_type]))            
-            dsz_l = dsz[:] # copy a list, 
-            dsz_l[dif['ro']['ind']] = self.hdr['number_of_samples'][ind_scan[0]]
-            for tg in range(dif['ro']['ind']+1, len(self.tags)):
-                dsz_l[dif[self.tags[tg]]['ind']] = len(np.unique(self.hdr['idx'][self.ismrmrd_tags[tg]][ind_scan]))
+            ind_scan = list(*np.where(self.flags[scan_type]))  # index of where scan_type is available          
+            dsz_l = dim_sz[:] # copy a list, 
+            dsz_l[dim_inf['ro']['ind']] = self.hdr['number_of_samples'][ind_scan[0]] # get readout size from first available scan in scan_type
+            for tag in range(dim_inf['ro']['ind']+1, len(self.readmrd_tags)): # update length of other dimensions
+                dsz_l[dim_inf[self.readmrd_tags[tag]]['ind']] = len(np.unique(self.hdr['idx'][self.ismrmrd_tags[tag]][ind_scan]))
 
             ind_pe1_min = 0
             ind_pe2_min = 0
+            ind_ro_zeropad  = 0
             if scan_type != 'image_scan':
                 self.kspace[scan_type] = np.zeros(dsz_l, dtype=np.complex64)   
                 if scan_type == 'acs':
                     ind_pe1_min = np.min(self.hdr['idx']['kspace_encode_step_1'][ind_scan])
                     ind_pe2_min = np.min(self.hdr['idx']['kspace_encode_step_2'][ind_scan])    
             else:
-                self.kspace[scan_type] = np.zeros(dsz, dtype=np.complex64)  
+                self.kspace[scan_type] = np.zeros(dim_sz, dtype=np.complex64)  # I used dim_sz rather than dsz_l to reset unsampled samples for possible asymmetric echo
+                ro_diff = dim_sz[dim_inf['ro']['ind']] - dsz_l[dim_inf['ro']['ind']]
                 
+                if ro_diff > 4 : # this case is Asymmetric echo! zero padding in one side
+                    self.isPartialFourierRO = True
+                    print('\033[93mHint! Asymmetric echo.\033[0m')
+                elif ro_diff > 0 : # this case is not asymmetric echo! zero paddding in both sides 
+                    ind_ro_zeropad = ro_diff//2
+
             for ind in tqdm(list(*np.where(self.flags[scan_type])), desc=f'Filling {scan_type:<10}, size={dsz_l}'):
-                data_tr = (self.data[ind][0::2] + 1j*self.data[ind][1::2]).reshape(dsz_l[dif['cha']['ind']], dsz_l[dif['ro']['ind']])
-                self.kspace[scan_type][:,:dsz_l[dif['ro']['ind']],  # dsz_l[dif['ro']['ind']] is needed for asymmetric echo
+                data_tr = (self.data[ind][0::2] + 1j*self.data[ind][1::2]).reshape(dsz_l[dim_inf['cha']['ind']], dsz_l[dim_inf['ro']['ind']])
+                self.kspace[scan_type][:,ind_ro_zeropad:dsz_l[dim_inf['ro']['ind']]+ind_ro_zeropad,  # dsz_l[dim_inf['ro']['ind']] is needed for asymmetric echo
                                         self.hdr['idx']['kspace_encode_step_1'][ind]-ind_pe1_min,
                                         self.hdr['idx']['kspace_encode_step_2'][ind]-ind_pe2_min,
                                         self.hdr['idx']['slice'][ind],
@@ -193,7 +204,7 @@ class readMRD(object):
                                         self.hdr['idx']['average'][ind],
                                         self.hdr['idx']['phase'][ind]] = data_tr
             # if scan_type == 'acs':
-            #     print(f'Padding reference scan to match the size of image scan. {dsz_l[0:4]} -> {dsz[0:4]}')
+            #     print(f'Padding reference scan to match the size of image scan. {dsz_l[0:4]} -> {dim_sz[0:4]}')
             #     shp = (np.array(dsz) - np.array(dsz_l)) // 2
             #     self.kspace[scan_type] = np.pad(self.kspace[scan_type], [(shp[0],), (shp[1],), (shp[2],), (shp[3],), (0,) , (0,) , (0,) , (0,) , (0,) , (0,) , (0,)], mode='constant')
 
