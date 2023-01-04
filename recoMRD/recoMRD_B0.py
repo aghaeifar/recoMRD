@@ -13,9 +13,12 @@ class recoMRD_B0(recoMRD):
 
     def __init__(self, filename=None):
         super().__init__(filename)
-        super().runReco()
+        self.runReco()
         
-    def _custom_task(self):
+    def runReco(self):
+        self.img = self.kspace_to_image(self.kspace['image_scan'])
+        self.img = self.remove_oversampling(self.img)
+        
         self.dTE = np.diff(self.xml_hdr.sequenceParameters.TE) * 1e-3
         print(f"Calculating B0 map. dTE = {self.dTE[0]*1e3} ms")
         if self.dim_info['rep']['len'] == 1 : #  % regular B0 mapping, b0map = (Eco2 - Eco1)
