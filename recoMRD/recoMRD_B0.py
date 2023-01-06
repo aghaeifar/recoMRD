@@ -9,7 +9,6 @@ class recoMRD_B0(recoMRD):
     img_b0      = np.empty([1])
     img_mag     = np.empty([1])    
     img_mask    = np.empty([1])
-    img_b0_uw   = np.empty([1]) # unwrapped 
 
     def __init__(self, filename=None):
         super().__init__(filename)
@@ -17,7 +16,7 @@ class recoMRD_B0(recoMRD):
         
     def runReco(self):
         self.img = self.kspace_to_image(self.kspace['image_scan'])
-        self.img = self.remove_oversampling(self.img)
+        self.img = self.remove_oversampling(self.img, update_diminfo= True)
         
         self.dTE = np.diff(self.xml_hdr.sequenceParameters.TE) * 1e-3
         print(f"Calculating B0 map. dTE = {self.dTE[0]*1e3} ms")
@@ -35,16 +34,16 @@ class recoMRD_B0(recoMRD):
             self.img_b0[:,:,:,:,:,0,0] = np.exp( 1j * 1)
 
         self.dim_info['eco']['len'] = self.dim_info['eco']['len'] - 1
-        self.dim_size[self.dim_info['eco']['ind']] = self.dim_info['eco']['len'] - 1
+        self.dim_size[self.dim_info['eco']['ind']] = self.dim_info['eco']['len']
 
         self.coil_combination(self.img, method='sos', coil_sens=None, update_diminfo=True)
 
     ##########################################################
-    def get_b0hz(self, offset = 0):
-        if self.img_b0_uw.shape != self.img_b0.shape:
+    def get_b0hz(self, b0_uw:np.ndarray, offset = 0):
+        if b0_uw.shape != self.img_b0.shape:
             print(f"\033[93mUnwrapped image is not yet calculated. \033[0m")
             return None
-        return (self.img_b0_uw + offset) / self.dTE[0] / (2*np.pi)
+        return (b0_uw + offset) / self.dTE[0] / (2*np.pi)
 
     ##########################################################
     def unwrap_b0(self):
@@ -54,7 +53,7 @@ class recoMRD_B0(recoMRD):
         b0_size = b0_size[0:4]
         if len(b0_size) != 4 :
             print(f'Only 3D or 4D data is supported for unwrapping. Input shape is {b0_size}')
-            return
+            return None
 
         dir_path = os.path.dirname(os.path.realpath(__file__))
         handle   = ctypes.CDLL(os.path.join(dir_path, "lib", "libunwrap_b0.so")) 
@@ -64,7 +63,7 @@ class recoMRD_B0(recoMRD):
         b0 = self.img_b0.copy(order='F')        
         b0_uw = np.zeros(b0.shape, dtype=b0.dtype, order='F')
         handle.unwrap_b0(b0, b0_uw, *b0_size) # 3D and 4D input  
-        self.img_b0_uw =  b0_uw.copy(order='C') 
+        return (b0_uw.copy(order='C')) 
                      
     ##########################################################
     def create_mask(self, erode_size = 3):
@@ -91,7 +90,7 @@ class recoMRD_B0(recoMRD):
         self.img_mask =  mask.reshape(self.img_mag.shape).copy(order='C') 
 
     def coil_combination(self, volume, method='sos', coil_sens=None, update_diminfo=False):
-        self.img_mag  = super().coil_combination(volume, method='sos')[:,:,:,:,:,0:1,0:1,0:1,0:1,0:1,0:1].copy() # I used 0:1 rather than  0 fro indexing to keep singleton dimensions. See https://stackoverflow.com/questions/3551242
+        self.img_mag  = super().coil_combination(volume, method='sos', update_diminfo=update_diminfo)[:,:,:,:,:,0:1,0:1,0:1,0:1,0:1,0:1].copy() # I used 0:1 rather than  0 fro indexing to keep singleton dimensions. See https://stackoverflow.com/questions/3551242
         self.img_mask = self.img_mag.copy()
         self.img_b0   = np.angle(np.sum(self.img_b0, self.dim_info['cha']['ind'], keepdims=True))
         # self.img = [] # save memory
