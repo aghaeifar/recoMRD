@@ -1,6 +1,7 @@
 import os
 import ctypes
 import numpy as np
+import scipy as sp
 import nibabel as nib
 from bart import bart
 from tqdm import tqdm
@@ -37,7 +38,7 @@ class recoMRD(readMRD):
         self.img = self.remove_oversampling(self.img)
         self.img = self.coil_combination(self.img, method='sos')
 
-
+    ##########################################################
     # applying iFFT to kspace and build image
     def kspace_to_image(self, kspace:np.ndarray):
         if kspace.ndim != len(self.dim_size):
@@ -189,13 +190,72 @@ class recoMRD(readMRD):
         return img
         
     ##########################################################
-    # Save a custom volume as nifti
-    def make_nifti(self, volume, filename):
-        
-        if isinstance(volume, np.ndarray) == False: 
-            print("Input volume must be a numpy array")
-            return
+    # Partial Fourier using Projection onto Convex Sets
+    def POCS(self, kspace:np.ndarray, dim_pf=1, number_of_iterations=5):
 
+        dims_enc = [self.dim_info['ro']['ind'], self.dim_info['pe1']['ind'] , self.dim_info['pe2']['ind']]
+        dims_nopocs = tuple([int(x) for x in range(kspace.ndim) if x != dim_pf])        
+        dims_nopocs_enc = dims_enc.copy()
+        dims_nopocs_enc.remove(dim_pf)
+
+        n_full = kspace.shape[dim_pf]
+        n_zpf  = n_full - (self.enc_minmax_ind[dim_pf][1] - self.enc_minmax_ind[dim_pf][0]) # number of zeros along partial fourier dimension 
+        minmax_ind = [self.enc_minmax_ind[dim_pf][0], self.enc_minmax_ind[dim_pf][1]]
+
+        mask_raw = np.sum(np.abs(kspace), dims_nopocs) > 0
+        ind_one  = np.nonzero(mask_raw == True)[0].tolist()
+        nopocs_range = np.arange(ind_one[-1]+1)
+        if ind_one[0] > (mask_raw.size - ind_one[-1] - 1):
+            nopocs_range = np.arange(ind_one[0], mask_raw.size)
+
+        acc = ind_one[1] - ind_one[0]
+        shift = acc * ((mask_raw.size - nopocs_range.size) // acc)
+        if nopocs_range[-1] == mask_raw.size - 1:
+            shift = -shift
+
+        # mask for non pocs dimension
+        mask_raw[nopocs_range] = True
+        mask_nonpocs = np.broadcast_to(np.expand_dims(mask_raw, axis=dims_nopocs), kspace.shape)
+
+        # mask for pocs dimensions
+        mask_pocs = np.abs(kspace) > 0
+        mask_pocs = mask_pocs | np.roll(mask_pocs, shift, axis=dim_pf) # expland mask along pocs direction
+        
+        # vector mask for symmetric region
+        mask_sym = mask_raw & np.flip(mask_raw)
+
+        gauss_pdf = sp.stats.norm.pdf(np.linspace(0, 1, n_full), 0.5, 0.05) * mask_sym
+        kspace_symmetric = kspace.copy()
+        kspace_symmetric = np.swapaxes(np.swapaxes(kspace_symmetric, dim_pf, -1) * gauss_pdf, -1, dim_pf)
+
+        angle_kspace_symmetric = ifftnd(kspace_symmetric, axes = dims_enc) # along all encoding directions
+        angle_kspace_symmetric = np.exp(1j * np.angle(angle_kspace_symmetric))
+
+        kspace_full = ifftnd(kspace, axes=dims_nopocs_enc) # along non-pocs encoding directions
+        kspace_full_clone = kspace_full.copy()
+        for i in range(number_of_iterations):
+            image_full  = ifftnd(kspace_full, axes=dim_pf)
+            image_full  = np.abs(image_full) * angle_kspace_symmetric
+            kspace_full = fftnd(image_full, axes=dim_pf)
+            np.putmask(kspace_full, mask_nonpocs, kspace_full_clone) # replace elements of kspace_full from kspace_full_clone based on mask_pocs
+
+        kspace_full = fftnd(kspace_full, axes=dims_nopocs_enc)
+        np.putmask(kspace_full, np.logical_not(mask_pocs), 0)
+        return kspace_full
+
+    
+    ##########################################################
+    # Save sampling pattern as mat file
+    def save_sampling_pattern(self, volume:np.ndarray, filename):
+        sampling_pattern = np.abs(volume) > 0
+        sp.io.savemat(filename, {'sampling_pattern': sampling_pattern})
+        print(f'Sampling pattern is saved as {os.path.abspath(filename)}')
+
+
+    ##########################################################
+    # Save a custom volume as nifti
+    def make_nifti(self, volume:np.ndarray, filename):
+        
         df = self.dim_info
         ds = [y for y in self.dim_size if y!=1]
         vs = [y for y in volume.shape  if y!=1]
