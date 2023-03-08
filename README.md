@@ -5,19 +5,11 @@ Scripts to read and reconstruct ismrmrd (mrd) format
 ## Install
 
 ## Dependecies
-Following Python packages will be installed with setup.py
-- tqdm
-- numpy
-- nibabel
-- ismrmrd
-- h5py
-- scipy
-  
-This program also uses following (optional) tools. Compiled binaries are provided in the [lib](./recoMRD/lib/) folder.
+This program uses following (optional) tools. Compiled binaries are provided in the [lib](./recoMRD/lib/) folder.
 - Standalone brain extraction tool (BET2) for brain masking [+](https://github.com/aghaeifar/bet2)
 - SRNCP 3D phase unwrapping [+](https://github.com/ivoreus/phase_unwrap) 
 
-[BART](https://github.com/mrirecon/bart) toolbox is used for some of coil combination methods (optional). 
+[BART](https://github.com/mrirecon/bart) toolbox is used for some of coil combination methods (optional).
 
 
 ## Class overview
@@ -31,6 +23,7 @@ This program also uses following (optional) tools. Compiled binaries are provide
 
 ### Important class members
 #### readMRD
+*kspace* : n dimension data storing different scan types, e.g., kspace, navigator, feedback, auto calibration scan, etc.
 *dim_size* : length of fully sampled acquired data in each dimension (no accelration, no partial fourier, no asymmetric echo, no ...?)\
 *matrix_size* : size of fully sampled 3D volume in k-space and image space\
 *fov* : FoV in k-space and image space\
