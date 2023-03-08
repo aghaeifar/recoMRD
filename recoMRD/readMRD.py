@@ -18,6 +18,7 @@ class readMRD(object):
     is3D     = False
     kspace   = {}         
     matrix_size         = None
+    enc_minmax_ind      = {}
     readmrd_tags        = {}
     ismrmrd_tags        = {} 
     transformation      = None
@@ -81,7 +82,7 @@ class readMRD(object):
         print('Number of reference scans: {}'.format(np.count_nonzero(flags['acs'])))
         print('Number of image     scans: {}'.format(np.count_nonzero(flags['image_scan'])))
 
-        enc     = self.xml_hdr.encoding[0]
+        enc = self.xml_hdr.encoding[0]
         # Matrix size
         matrix_size                = {'kspace':{}, 'image':{}}
         matrix_size['image']['x']  = enc.reconSpace.matrixSize.x
@@ -139,6 +140,13 @@ class readMRD(object):
         for i in self.dim_info.keys():
             self.dim_size[self.dim_info[i]['ind']] = self.dim_info[i]['len']
 
+        # index of minimum and maximum encoding
+        image_scan_ind = list(*np.where(self.flags['image_scan']))
+        first_sample_ind = matrix_size['kspace']['x']//2 - self.hdr['center_sample'][image_scan_ind[0]]
+        self.enc_minmax_ind[self.dim_info['ro']['ind']]  = [first_sample_ind, first_sample_ind+self.hdr['number_of_samples'][image_scan_ind[0]]-1]
+        self.enc_minmax_ind[self.dim_info['pe1']['ind']] = [enc.encodingLimits.kspace_encoding_step_1.minimum, enc.encodingLimits.kspace_encoding_step_1.maximum]
+        self.enc_minmax_ind[self.dim_info['pe2']['ind']] = [enc.encodingLimits.kspace_encoding_step_2.minimum, enc.encodingLimits.kspace_encoding_step_2.maximum]
+
         if (self.dim_info['pe1']['len'] != enc.encodingLimits.kspace_encoding_step_1.maximum + 1 or 
             self.dim_info['pe2']['len'] != enc.encodingLimits.kspace_encoding_step_2.maximum + 1  ):
             print(f'\033[93mk-space encoding size ({self.dim_info["pe1"]["len"]} x {self.dim_info["pe2"]["len"]}) ' 
@@ -156,57 +164,53 @@ class readMRD(object):
                 self.isRefScanSeparate = True
                 print('Reference scan type: separate')
 
-        self.is3D = bool(self.dim_info['pe2']['len'] - 1)
+        self.is3D = self.dim_info['pe2']['len'] > 1
 
 
     def _create_kspace(self):
-        dim_inf = self.dim_info
-        dim_sz  = self.dim_size
         existing_scans = [scan for scan in self.flags if self.flags[scan].any()]
         print(f'Existing scans: {", ".join(existing_scans)}.')
-
-        print(f'Fully sampled array size={dim_sz}')
+        print(f'Fully sampled array size={self.dim_size}')
         for scan_type in existing_scans: 
             ind_scan = list(*np.where(self.flags[scan_type]))  # index of where scan_type is available          
-            dsz_l = dim_sz[:] # copy a list, 
-            dsz_l[dim_inf['ro']['ind']] = self.hdr['number_of_samples'][ind_scan[0]] # get readout size from first available scan in scan_type
-            for tag in range(dim_inf['ro']['ind']+1, len(self.readmrd_tags)): # update length of other dimensions
-                dsz_l[dim_inf[self.readmrd_tags[tag]]['ind']] = len(np.unique(self.hdr['idx'][self.ismrmrd_tags[tag]][ind_scan]))
+            dim_size_local = self.dim_size[:] # copy a list to keep original dim_size unchanged
+            dim_size_local[self.dim_info['ro']['ind']] = self.hdr['number_of_samples'][ind_scan[0]] # update readout size from first available scan in current scan_type --> for asymmetry readout or missed samples
+            for tag in range(self.dim_info['ro']['ind']+1, len(self.readmrd_tags)): # update length of other dimensions --> for AccelFactor, partial Fourier, etc.
+                dim_size_local[self.dim_info[self.readmrd_tags[tag]]['ind']] = len(np.unique(self.hdr['idx'][self.ismrmrd_tags[tag]][ind_scan]))
 
             ind_pe1_min = 0
             ind_pe2_min = 0
-            ind_ro_zeropad  = 0
+            ind_ro_zeropad = 0
             if scan_type != 'image_scan':
-                self.kspace[scan_type] = np.zeros(dsz_l, dtype=np.complex64)   
-                if scan_type == 'acs':
+                self.kspace[scan_type] = np.zeros(dim_size_local, dtype=np.complex64)   
+                if scan_type == 'acs': # standardize separate and integrated reference scan to the same size
                     ind_pe1_min = np.min(self.hdr['idx']['kspace_encode_step_1'][ind_scan])
                     ind_pe2_min = np.min(self.hdr['idx']['kspace_encode_step_2'][ind_scan])    
-            else:
-                self.kspace[scan_type] = np.zeros(dim_sz, dtype=np.complex64)  # I used dim_sz rather than dsz_l to reset unsampled samples for possible asymmetric echo
-                ro_diff = dim_sz[dim_inf['ro']['ind']] - dsz_l[dim_inf['ro']['ind']]
+            else: # == 'image_scan'
+                self.kspace[scan_type] = np.zeros(self.dim_size, dtype=np.complex64)  # I used dim_sz rather than dim_size_local to reset unsampled samples for possible asymmetric echo
                 
+                ro_diff = self.dim_size[self.dim_info['ro']['ind']] - dim_size_local[self.dim_info['ro']['ind']]
                 if ro_diff > 4 : # this case is Asymmetric echo! zero padding in one side
                     self.isPartialFourierRO = True
-                    print('\033[93mHint! Asymmetric echo.\033[0m')
+                    ind_ro_zeropad = self.enc_minmax_ind[self.dim_info['ro']['ind']][0]
+                    print(f'\033[93mHint! Asymmetric echo. RO zero pad index = {ind_ro_zeropad}\033[0m')
                 elif ro_diff > 0 : # this case is not asymmetric echo! zero paddding in both sides 
                     ind_ro_zeropad = ro_diff//2
+                    print(f'RO zero pad index = {ind_ro_zeropad}')
 
-            for ind in tqdm(list(*np.where(self.flags[scan_type])), desc=f'Filling {scan_type:<10}, size={dsz_l}'):
-                data_tr = (self.data[ind][0::2] + 1j*self.data[ind][1::2]).reshape(dsz_l[dim_inf['cha']['ind']], dsz_l[dim_inf['ro']['ind']])
-                self.kspace[scan_type][:,ind_ro_zeropad:dsz_l[dim_inf['ro']['ind']]+ind_ro_zeropad,  # dsz_l[dim_inf['ro']['ind']] is needed for asymmetric echo
-                                        self.hdr['idx']['kspace_encode_step_1'][ind]-ind_pe1_min,
-                                        self.hdr['idx']['kspace_encode_step_2'][ind]-ind_pe2_min,
-                                        self.hdr['idx']['slice'][ind],
-                                        self.hdr['idx']['contrast'][ind],
-                                        self.hdr['idx']['repetition'][ind],
-                                        self.hdr['idx']['set'][ind],
-                                        self.hdr['idx']['segment'][ind],
-                                        self.hdr['idx']['average'][ind],
-                                        self.hdr['idx']['phase'][ind]] = data_tr
-            # if scan_type == 'acs':
-            #     print(f'Padding reference scan to match the size of image scan. {dsz_l[0:4]} -> {dim_sz[0:4]}')
-            #     shp = (np.array(dsz) - np.array(dsz_l)) // 2
-            #     self.kspace[scan_type] = np.pad(self.kspace[scan_type], [(shp[0],), (shp[1],), (shp[2],), (shp[3],), (0,) , (0,) , (0,) , (0,) , (0,) , (0,) , (0,)], mode='constant')
+            for ind in tqdm(list(*np.where(self.flags[scan_type])), desc=f'Filling {scan_type:<10}, size={dim_size_local}'):
+                data_tr = self.data[ind][0::2] + 1j*self.data[ind][1::2]
+                data_tr = data_tr.reshape(dim_size_local[self.dim_info['cha']['ind']], dim_size_local[self.dim_info['ro']['ind']])
+                self.kspace[scan_type][:, ind_ro_zeropad:dim_size_local[self.dim_info['ro']['ind']]+ind_ro_zeropad,  # dim_size_local[dim_inf['ro']['ind']] is needed for asymmetric echo
+                                       self.hdr['idx'][self.ismrmrd_tags[2]][ind]-ind_pe1_min,
+                                       self.hdr['idx'][self.ismrmrd_tags[3]][ind]-ind_pe2_min,
+                                       self.hdr['idx'][self.ismrmrd_tags[4]][ind],
+                                       self.hdr['idx'][self.ismrmrd_tags[5]][ind],
+                                       self.hdr['idx'][self.ismrmrd_tags[6]][ind],
+                                       self.hdr['idx'][self.ismrmrd_tags[7]][ind],
+                                       self.hdr['idx'][self.ismrmrd_tags[8]][ind],
+                                       self.hdr['idx'][self.ismrmrd_tags[9]][ind],
+                                       self.hdr['idx'][self.ismrmrd_tags[10]][ind]] = data_tr
 
 
     def _reorder_slice(self):
