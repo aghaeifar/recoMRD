@@ -17,5 +17,5 @@ setup(name='recoMRD', # this will be name of package in packages list : pip list
       author_email='ali.aghaeifar [at] tuebingen.mpg [dot] de',
       license='MIT License',
       packages=['recoMRD'],
-      install_requires = ['tqdm','numpy','nibabel','ismrmrd','h5py','scipy'],
+      install_requires = ['tqdm','numpy','nibabel','ismrmrd','h5py','scipy', 'scikit-image','matplotlib']
      )
