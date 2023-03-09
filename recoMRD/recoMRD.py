@@ -6,24 +6,9 @@ import nibabel as nib
 from bart import bart
 from tqdm import tqdm
 from .readMRD import readMRD
+from .utils import ifftnd, fftnd
 
 
-# ifftnd and fftnd are taken from twixtools package
-def ifftnd(kspace:np.ndarray, axes=[-1]):
-    from numpy.fft import fftshift, ifftshift, ifftn
-    if axes is None:
-        axes = range(kspace.ndim)
-    img  = fftshift(ifftn(ifftshift(kspace, axes=axes), axes=axes), axes=axes)
-    img *= np.sqrt(np.prod(np.take(img.shape, axes)))
-    return img
-
-def fftnd(img:np.ndarray, axes=[-1]):
-    from numpy.fft import fftshift, ifftshift, fftn
-    if axes is None:
-        axes = range(img.ndim)
-    kspace  = fftshift(fftn(ifftshift(img, axes=axes), axes=axes), axes=axes)
-    kspace /= np.sqrt(np.prod(np.take(kspace.shape, axes)))
-    return kspace
 
 
 class recoMRD(readMRD):    
@@ -63,7 +48,7 @@ class recoMRD(readMRD):
         return kspace
 
     ##########################################################
-    def coil_combination(self, volume:np.ndarray, method='sos', coil_sens=None, update_diminfo=False):
+    def coil_combination(self, volume:np.ndarray, method='sos', coil_sens=None):
         if volume.ndim != len(self.dim_size):
             print(f'Input size not valid. {volume.shape} != {self.dim_size}')
             return
@@ -73,7 +58,6 @@ class recoMRD(readMRD):
             print(f'Given method is not valid. Choose between {", ".join(all_methods)}')
             return
         
-
         volume_comb = np.sqrt(np.sum(abs(volume)**2, self.dim_info['cha']['ind'], keepdims=True))
         if method.lower() == 'bart' and coil_sens is not None:
             l2_reg    = 1e-4
@@ -92,10 +76,6 @@ class recoMRD(readMRD):
             coil_sens   = np.expand_dims(coil_sens, axis=[*range(coil_sens.ndim, volume.ndim)]) # https://numpy.org/doc/stable/user/basics.broadcasting.html
             volume_comb = np.divide(volume, coil_sens, out=np.zeros_like(coil_sens), where=coil_sens!=0)
             volume_comb = np.sum(volume_comb, self.dim_info['cha']['ind'], keepdims=True)
-
-        if update_diminfo:
-            self.dim_info['cha']['len'] = volume_comb.shape[self.dim_info['cha']['ind']]
-            self.dim_size[self.dim_info['cha']['ind']] = self.dim_info['cha']['len']
 
         return volume_comb
 
@@ -171,24 +151,41 @@ class recoMRD(readMRD):
         return (*kspace_compressed,)
 
     ##########################################################
-    def remove_oversampling(self, img:np.ndarray, update_diminfo=False):
+    def remove_oversampling(self, img:np.ndarray, is_kspace=False):
         if img.ndim != len(self.dim_size):
             print(f'Error! shape is wrong. {img.shape} vs {self.dim_size}')
             return
         
         if img.shape[self.dim_info['ro']['ind']] != self.dim_info['ro']['len']:
-            print('Seems oversampling is already removed!')
+            print('Oversampling is already removed!')
+            return
 
         print('Remove oversampling...', end=' ')
-        cutoff = (img.shape[self.dim_info['ro']['ind']] - self.matrix_size['image']['x']) // 2 # // -> integer division
-        img = np.take(img, np.arange(cutoff, cutoff+self.matrix_size['image']['x']), axis=self.dim_info['ro']['ind']) # img[:,cutoff:-cutoff,...]
+        if is_kspace:
+            os_factor = self.dim_info['ro']['len'] / self.matrix_size['image']['x'] # must be divisible, otherwise I made a mistake somewhere
+            ind = np.arange(0, self.dim_info['ro']['len'], os_factor)
+        else:
+            cutoff = (img.shape[self.dim_info['ro']['ind']] - self.matrix_size['image']['x']) // 2 # // -> integer division
+            ind = np.arange(cutoff, cutoff+self.matrix_size['image']['x']) # img[:,cutoff:-cutoff,...]
+            
+        img = np.take(img, ind, axis=self.dim_info['ro']['ind'])
 
-        if update_diminfo:
-            self.dim_info['ro']['len'] = img.shape[self.dim_info['ro']['ind']]
-            self.dim_size[self.dim_info['ro']['ind']] = self.dim_info['ro']['len']
         print('Done.')
         return img
+
+
+    ##########################################################   
+    # update dimension info
+    def update_dim_info(self, img:np.ndarray):
+        if img.ndim != len(self.dim_size):
+            print(f'Error! shape is wrong. {img.shape} vs {self.dim_size}')
+            return
         
+        for tags in self.dim_info.keys():
+            self.dim_info[tags]['len'] = img.shape[self.dim_info[tags]['ind']]
+            self.dim_size[self.dim_info[tags]['ind']] = self.dim_info[tags]['len']
+
+
     ##########################################################
     # Partial Fourier using Projection onto Convex Sets
     def POCS(self, kspace:np.ndarray, dim_pf=1, number_of_iterations=5):
