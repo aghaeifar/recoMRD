@@ -14,7 +14,8 @@ class readMRD(object):
     data     = None
     xml_hdr  = None
     dim_info = None
-    dim_size = None    
+    dim_size = None  
+    dim_enc = None  
     is3D     = False
     kspace   = {}         
     matrix_size         = None
@@ -37,6 +38,7 @@ class readMRD(object):
         self.filename  = filename                
         self.readmrd_tags = ['cha', 'ro', 'pe1', 'pe2', 'slc', 'eco', 'rep', 'set', 'seg', 'ave', 'phs'] # order matters here
         self.ismrmrd_tags = ['', '', 'kspace_encode_step_1', 'kspace_encode_step_2', 'slice', 'contrast', 'repetition', 'set', 'segment', 'average', 'phase']
+        self.dim_enc      = [1, 2, 3]
         self.kspace = {}
         self.dim_info = {}
         for i in range(len(self.readmrd_tags)):
@@ -222,6 +224,14 @@ class readMRD(object):
                     self.kspace[scan_type][ind2] = data_tr
                 self.kspace[scan_type] = np.array(self.kspace[scan_type], dtype="O") # convert list to numpy array
 
+        # pad the ACS data to the same size as the image data
+        if 'acs' in existing_scans:          
+            diff  = np.asarray([self.dim_size[i]-self.kspace['acs'].shape[i] for i in self.dim_enc])
+            pad_a = diff // 2
+            pad_b = diff - pad_a
+            pad   = np.zeros((len(self.dim_size) ,2), dtype=int)
+            pad[self.dim_enc,:] = np.vstack((pad_a, pad_b)).T
+            self.kspace['acs'] = np.pad(self.kspace['acs'], pad, mode ='constant') 
 
     def _reorder_slice(self):
         print('Reorder slice...', end=' ')
