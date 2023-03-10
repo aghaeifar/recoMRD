@@ -178,17 +178,12 @@ class readMRD(object):
             for tag in range(self.dim_info['ro']['ind']+1, len(self.readmrd_tags)): # update length of other dimensions --> for AccelFactor, partial Fourier, etc.
                 dim_size_local[self.dim_info[self.readmrd_tags[tag]]['ind']] = len(np.unique(self.hdr['idx'][self.ismrmrd_tags[tag]][ind_scan]))
 
+            # allocate k-space & set index of minimum and maximum
             ind_pe1_min = 0
             ind_pe2_min = 0
             ind_ro_zeropad = 0
-            if scan_type != 'image_scan':
-                self.kspace[scan_type] = np.zeros(dim_size_local, dtype=np.complex64)   
-                if scan_type == 'acs': # standardize separate and integrated reference scan to the same size
-                    ind_pe1_min = np.min(self.hdr['idx']['kspace_encode_step_1'][ind_scan])
-                    ind_pe2_min = np.min(self.hdr['idx']['kspace_encode_step_2'][ind_scan])    
-            else: # == 'image_scan'
+            if scan_type == 'image_scan':
                 self.kspace[scan_type] = np.zeros(self.dim_size, dtype=np.complex64)  # I used dim_sz rather than dim_size_local to reset unsampled samples for possible asymmetric echo
-                
                 ro_diff = self.dim_size[self.dim_info['ro']['ind']] - dim_size_local[self.dim_info['ro']['ind']]
                 if ro_diff > 4 : # this case is Asymmetric echo! zero padding in one side
                     self.isPartialFourierRO = True
@@ -198,19 +193,34 @@ class readMRD(object):
                     ind_ro_zeropad = ro_diff//2
                     print(f'RO zero pad index = {ind_ro_zeropad}')
 
-            for ind in tqdm(list(*np.where(self.flags[scan_type])), desc=f'Filling {scan_type:<10}, size={dim_size_local}'):
-                data_tr = self.data[ind][0::2] + 1j*self.data[ind][1::2]
-                data_tr = data_tr.reshape(dim_size_local[self.dim_info['cha']['ind']], dim_size_local[self.dim_info['ro']['ind']])
-                self.kspace[scan_type][:, ind_ro_zeropad:dim_size_local[self.dim_info['ro']['ind']]+ind_ro_zeropad,  # dim_size_local[dim_inf['ro']['ind']] is needed for asymmetric echo
-                                       self.hdr['idx'][self.ismrmrd_tags[2]][ind]-ind_pe1_min,
-                                       self.hdr['idx'][self.ismrmrd_tags[3]][ind]-ind_pe2_min,
-                                       self.hdr['idx'][self.ismrmrd_tags[4]][ind],
-                                       self.hdr['idx'][self.ismrmrd_tags[5]][ind],
-                                       self.hdr['idx'][self.ismrmrd_tags[6]][ind],
-                                       self.hdr['idx'][self.ismrmrd_tags[7]][ind],
-                                       self.hdr['idx'][self.ismrmrd_tags[8]][ind],
-                                       self.hdr['idx'][self.ismrmrd_tags[9]][ind],
-                                       self.hdr['idx'][self.ismrmrd_tags[10]][ind]] = data_tr
+            elif scan_type == 'acs':
+                self.kspace[scan_type] = np.zeros(dim_size_local, dtype=np.complex64)                   
+                ind_pe1_min = np.min(self.hdr['idx']['kspace_encode_step_1'][ind_scan]) # standardize separate and integrated reference scan to the same size
+                ind_pe2_min = np.min(self.hdr['idx']['kspace_encode_step_2'][ind_scan])  
+
+            else: # == 'image_scan'
+                self.kspace[scan_type] = [None] * self.flags[scan_type].sum()
+                                
+            # fill k-space
+            if scan_type in ['image_scan', 'acs']:
+                for ind in tqdm(list(*np.where(self.flags[scan_type])), desc=f'Filling {scan_type:<10}, size={dim_size_local}'):
+                    data_tr = self.data[ind][0::2] + 1j*self.data[ind][1::2]
+                    data_tr = data_tr.reshape(dim_size_local[self.dim_info['cha']['ind']], dim_size_local[self.dim_info['ro']['ind']])
+                    self.kspace[scan_type][:, ind_ro_zeropad:dim_size_local[self.dim_info['ro']['ind']]+ind_ro_zeropad,  # dim_size_local[dim_inf['ro']['ind']] is needed for asymmetric echo
+                                        self.hdr['idx'][self.ismrmrd_tags[2]][ind]-ind_pe1_min,
+                                        self.hdr['idx'][self.ismrmrd_tags[3]][ind]-ind_pe2_min,
+                                        self.hdr['idx'][self.ismrmrd_tags[4]][ind],
+                                        self.hdr['idx'][self.ismrmrd_tags[5]][ind],
+                                        self.hdr['idx'][self.ismrmrd_tags[6]][ind],
+                                        self.hdr['idx'][self.ismrmrd_tags[7]][ind],
+                                        self.hdr['idx'][self.ismrmrd_tags[8]][ind],
+                                        self.hdr['idx'][self.ismrmrd_tags[9]][ind],
+                                        self.hdr['idx'][self.ismrmrd_tags[10]][ind]] = data_tr
+            else:
+                for ind1, ind2 in zip(tqdm(list(*np.where(self.flags[scan_type])), desc=f'Filling {scan_type:<10}, size={dim_size_local}'), range(len(self.kspace[scan_type]))):
+                    data_tr = self.data[ind1][0::2] + 1j*self.data[ind1][1::2]
+                    self.kspace[scan_type][ind2] = data_tr
+                self.kspace[scan_type] = np.array(self.kspace[scan_type], dtype="O") # convert list to numpy array
 
 
     def _reorder_slice(self):
