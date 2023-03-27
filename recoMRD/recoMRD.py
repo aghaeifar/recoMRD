@@ -69,8 +69,11 @@ class recoMRD(readMRD):
             volume_comb  = volume_comb.reshape(volume_comb.shape[:4] + (-1,)) # flatten extra dims
             scale_factor = [np.percentile(volume_comb[...,ind], 99).astype(np.float32) for ind in range(volume_comb.shape[-1])]
             recon  = [np.expand_dims(bart.bart(1, 'pics -w {} -R Q:{} -S'.format(scale_factor[ind], l2_reg), kspace[...,ind], coil_sens[...,ind%n_extra2]), axis=[0,3]) for ind in range(n_extra1)]
-            shp = [1,] + self.dim_size[1:]
-            volume_comb = np.stack(recon, axis=4).reshape(shp)
+            # print(recon[0].shape)
+            # print(len(recon))
+            # shp = [1,] + self.dim_size[1:]
+            # print(shp)
+            volume_comb = np.stack(recon, axis=4) #.reshape(shp)
 
         elif method.lower() == 'adaptive' and coil_sens is not None:
             coil_sens   = np.expand_dims(coil_sens, axis=[*range(coil_sens.ndim, volume.ndim)]) # https://numpy.org/doc/stable/user/basics.broadcasting.html
@@ -80,7 +83,7 @@ class recoMRD(readMRD):
         return volume_comb
 
     ##########################################################
-    def calc_coil_sensitivity(self, acs, method='caldir'):
+    def calc_coil_sensitivity(self, acs:np.ndarray, method='caldir'):
         all_methods = ('espirit', 'caldir', 'walsh')
         if method.lower() not in all_methods:
             print(f'Given method is not valid. Choose between {", ".join(all_methods)}')
@@ -152,7 +155,7 @@ class recoMRD(readMRD):
 
     ##########################################################
     def remove_oversampling(self, img:np.ndarray, is_kspace=False):
-        if img.ndim != len(self.dim_size):
+        if img.squeeze().ndim != len([i for i in self.dim_size if i>1]):
             print(f'Error! shape is wrong. {img.shape} vs {self.dim_size}')
             return
         
@@ -163,11 +166,11 @@ class recoMRD(readMRD):
         print('Remove oversampling...', end=' ')
         if is_kspace:
             os_factor = self.dim_info['ro']['len'] / self.matrix_size['image']['x'] # must be divisible, otherwise I made a mistake somewhere
-            ind = np.arange(0, self.dim_info['ro']['len'], os_factor)
+            ind = np.arange(0, self.dim_info['ro']['len'], os_factor, dtype=int)
         else:
             cutoff = (img.shape[self.dim_info['ro']['ind']] - self.matrix_size['image']['x']) // 2 # // -> integer division
             ind = np.arange(cutoff, cutoff+self.matrix_size['image']['x']) # img[:,cutoff:-cutoff,...]
-            
+        
         img = np.take(img, ind, axis=self.dim_info['ro']['ind'])
 
         print('Done.')
@@ -175,7 +178,7 @@ class recoMRD(readMRD):
 
 
     ##########################################################   
-    # update dimension info
+    # update dimension info based on the input image
     def update_dim_info(self, img:np.ndarray):
         if img.ndim != len(self.dim_size):
             print(f'Error! shape is wrong. {img.shape} vs {self.dim_size}')

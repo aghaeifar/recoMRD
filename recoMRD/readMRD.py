@@ -229,8 +229,8 @@ class readMRD(object):
             diff  = np.asarray([self.dim_size[i]-self.kspace['acs'].shape[i] for i in self.dim_enc])
             pad_a = diff // 2
             pad_b = diff - pad_a
-            pad   = np.zeros((len(self.dim_size) ,2), dtype=int)
-            pad[self.dim_enc,:] = np.vstack((pad_a, pad_b)).T
+            pad   = np.zeros((len(self.dim_size) ,2), dtype=int) # pad must be of the same size as the dimension of the input array
+            pad[self.dim_enc,:] = np.vstack((pad_a, pad_b)).T    # padding only for the encoding dimensions
             self.kspace['acs'] = np.pad(self.kspace['acs'], pad, mode ='constant') 
 
     def _reorder_slice(self):

@@ -39,16 +39,21 @@ def plot3D(img:np.ndarray, cmap='turbo', clim=None, pos = None):
     plt.tight_layout() 
 
 
-def plot_mosaic(img:np.ndarray, cmap='turbo', clim=None, grid_shape=None):
+def plot_mosaic(img:np.ndarray, cmap='turbo', clim=None, grid_shape=None, title=None, transpose=False):
     img = np.squeeze(img) 
     if img.ndim > 3:
         print(f'Error! plot_mosaic expects 3D data but it is {img.ndim}D')
         return
     img = np.moveaxis(img,-1,0)
     img = montage(img, fill=0, grid_shape=grid_shape)
+    if transpose:
+        img = img.T
+        
     plt.figure()
     plt.imshow(img, cmap=cmap, clim=clim)
     plt.axis('off')
+    if title is not None:
+        plt.title(title)
     plt.colorbar()
     plt.tight_layout() 
     return img
