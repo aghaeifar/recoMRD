@@ -23,6 +23,7 @@ class readMRD(object):
     readmrd_tags        = {}
     ismrmrd_tags        = {} 
     transformation      = None
+    nii_affine          = None
     isParallelImaging   = False
     isRefScanSeparate   = False
     isPartialFourierRO  = False
@@ -272,4 +273,34 @@ class readMRD(object):
         transformation['mat44']         = transformation['soda'][0,:,:] 
         transformation['mat44'][0:3,3]  = offcenter
         self.transformation = transformation
+
+        #
+        # build affine matrix, according to SPM notation
+        # 
+        T = self.transformation['mat44'].copy()
+        T[:,1:3] = -T[:,1:3] # experimentally discovered
+
+        PixelSpacing = [self.fov['image']['x'] / self.matrix_size['image']['x'], 
+                        self.fov['image']['y'] / self.matrix_size['image']['y']]
+        R = T[:,0:2] @ np.diag(PixelSpacing)
+        x1 = [1,1,1,1]
+        x2 = [1,1,self.matrix_size['image']['z'],1]
+        
+        thickness = self.fov['image']['z'] / self.matrix_size['image']['z']
+        zmax = (self.fov['image']['z'] - thickness) / 2
+        y1_c = T @ [0, 0, -zmax, 1]
+        y2_c = T @ [0, 0, +zmax, 1]
+        # SBCS Position Vector points to slice center this must be recalculated for DICOM to point to the upper left corner.
+        y1 = y1_c - T[:,0] * self.fov['image']['x']/2 - T[:,1] * self.fov['image']['y']/2
+        y2 = y2_c - T[:,0] * self.fov['image']['x']/2 - T[:,1] * self.fov['image']['y']/2
+        
+        DicomToPatient  = np.column_stack((y1, y2, R)) @ np.linalg.inv(np.column_stack((x1, x2, np.eye(4,2))))
+        # Flip voxels in y
+        
+        AnalyzeToDicom  = np.column_stack((np.diag([1,-1,1]), [0, (self.matrix_size['image']['y']+1), 0]))
+        AnalyzeToDicom  = np.row_stack((AnalyzeToDicom, [0,0,0,1]))
+        # Flip mm coords in x and y directions
+        PatientToTal    = np.diag([-1, -1, 1, 1]) 
+        affine          = PatientToTal @ DicomToPatient @ AnalyzeToDicom
+        self.nii_affine = affine @ np.column_stack((np.eye(4,3), [1,1,1,1])) # this part is implemented in SPM nifti.m
 

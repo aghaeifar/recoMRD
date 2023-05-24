@@ -58,22 +58,19 @@ class recoMRD(readMRD):
             print(f'Given method is not valid. Choose between {", ".join(all_methods)}')
             return
         
+        shp = (1,) + volume.shape[1:]
         volume_comb = np.sqrt(np.sum(abs(volume)**2, self.dim_info['cha']['ind'], keepdims=True))
         if method.lower() == 'bart' and coil_sens is not None:
             l2_reg    = 1e-4
-            volume    = np.moveaxis(volume, 0, 3) # adapting to bart CFL format
+            volume    = np.moveaxis(volume, 0, 3) # adapting to bart CFL format: [RO, PE1, PE2, CHA, ...] see https://bart-doc.readthedocs.io/en/latest/data.html or https://github.com/mrirecon/bart/blob/master/src/misc/mri.h
             coil_sens = np.moveaxis(coil_sens, 0, 3) # adapting to bart CFL format
             n_extra1  = np.prod(volume.shape[4:]) # number of extra dims  
             n_extra2  = np.prod(volume.shape[5:]) # number of extra dims excluing slice
             kspace    = volume.reshape(volume.shape[:4] +(-1,)) # flatten extra dims
-            volume_comb  = volume_comb.reshape(volume_comb.shape[:4] + (-1,)) # flatten extra dims
+            volume_comb  = volume_comb.reshape(volume_comb.shape[:4] + (-1,)) # flatten extra dims for output
             scale_factor = [np.percentile(volume_comb[...,ind], 99).astype(np.float32) for ind in range(volume_comb.shape[-1])]
-            recon  = [np.expand_dims(bart.bart(1, 'pics -w {} -R Q:{} -S'.format(scale_factor[ind], l2_reg), kspace[...,ind], coil_sens[...,ind%n_extra2]), axis=[0,3]) for ind in range(n_extra1)]
-            # print(recon[0].shape)
-            # print(len(recon))
-            # shp = [1,] + self.dim_size[1:]
-            # print(shp)
-            volume_comb = np.stack(recon, axis=4) #.reshape(shp)
+            recon     = [bart.bart(1, 'pics -w {} -R Q:{} -S'.format(scale_factor[ind], l2_reg), kspace[...,ind], coil_sens[...,ind%n_extra2]) for ind in range(n_extra1)]
+            volume_comb  = np.stack(recon, axis=recon[0].ndim).reshape(shp)
 
         elif method.lower() == 'adaptive' and coil_sens is not None:
             coil_sens   = np.expand_dims(coil_sens, axis=[*range(coil_sens.ndim, volume.ndim)]) # https://numpy.org/doc/stable/user/basics.broadcasting.html
@@ -115,7 +112,9 @@ class recoMRD(readMRD):
                                                 ctypes.POINTER(ctypes.c_int), 
                                                 ctypes.POINTER(ctypes.c_int),
                                                 ctypes.c_int, ctypes.c_bool]
-            acs = acs[...,0,0,0,0,0,0].squeeze().copy(order='F')
+            
+            acs = self.kspace_to_image(acs)
+            acs = acs[...,0,0,0,0,0,0].squeeze().copy(order='F')            
             weights = np.zeros_like(acs, dtype=np.complex64, order='F')  
             norm = np.zeros_like(acs[0,...], dtype=np.float32, order='F')    
             n = list(acs.shape)
@@ -256,19 +255,20 @@ class recoMRD(readMRD):
     # Save a custom volume as nifti
     def make_nifti(self, volume:np.ndarray, filename):
         
+        # input must have same dimension ordering as dim_info
         df = self.dim_info
-        ds = [y for y in self.dim_size if y!=1]
-        vs = [y for y in volume.shape  if y!=1]
-        if vs != ds:
-            print(f"Size mismatch! {vs} vs {ds}")
+        check_dims = [df['ro']['ind'], df['pe1']['ind'], df['pe2']['ind'], df['slc']['ind'], df['rep']['ind']]
+        ds = [self.dim_size[y] for y in check_dims]
+        vs = [volume.shape[y] for y in check_dims]
+        if vs != ds and vs[0]*2 != ds[0]: # second condition is to account for oversampling
+            print(f"Size mismatch (RO, PE1, PE2, SLC, REP)! {vs } vs {ds}")
             return
 
+        vs = [y for y in volume.shape  if y!=1]
         if len(vs) > 4 :
             print(f"{len(vs)}D data is not supported")
             return
 
-        # bringing to a shape that fits to dim_info
-        volume = volume.reshape(self.dim_size)
         volume = np.flip(volume, axis = [df['ro']['ind'], 
                                          df['pe1']['ind'],
                                          df['slc']['ind']])
@@ -286,38 +286,7 @@ class recoMRD(readMRD):
         volume = volume.squeeze()
        
         #
-        # build affine matrix, according to SPM notation
-        #
-
-        T = self.transformation['mat44'].copy()
-        T[:,1:3] = -T[:,1:3] # experimentally discovered
-
-        PixelSpacing = [self.fov['image']['x'] / self.matrix_size['image']['x'], 
-                        self.fov['image']['y'] / self.matrix_size['image']['y']]
-        R = T[:,0:2] @ np.diag(PixelSpacing)
-        x1 = [1,1,1,1]
-        x2 = [1,1,self.matrix_size['image']['z'],1]
-        
-        thickness = self.fov['image']['z'] / self.matrix_size['image']['z']
-        zmax = (self.fov['image']['z'] - thickness) / 2
-        y1_c = T @ [0, 0, -zmax, 1]
-        y2_c = T @ [0, 0, +zmax, 1]
-        # SBCS Position Vector points to slice center this must be recalculated for DICOM to point to the upper left corner.
-        y1 = y1_c - T[:,0] * self.fov['image']['x']/2 - T[:,1] * self.fov['image']['y']/2
-        y2 = y2_c - T[:,0] * self.fov['image']['x']/2 - T[:,1] * self.fov['image']['y']/2
-        
-        DicomToPatient = np.column_stack((y1, y2, R)) @ np.linalg.inv(np.column_stack((x1, x2, np.eye(4,2))))
-        # Flip voxels in y
-        
-        AnalyzeToDicom = np.column_stack((np.diag([1,-1,1]), [0, (self.matrix_size['image']['y']+1), 0]))
-        AnalyzeToDicom = np.row_stack((AnalyzeToDicom, [0,0,0,1]))
-        # Flip mm coords in x and y directions
-        PatientToTal   = np.diag([-1, -1, 1, 1]) 
-        affine         = PatientToTal @ DicomToPatient @ AnalyzeToDicom
-        affine         = affine @ np.column_stack((np.eye(4,3), [1,1,1,1])) # this part is implemented in SPM nifti.m
-        
-        #
         # save to file
         #
-        img = nib.Nifti1Image(volume, affine)
+        img = nib.Nifti1Image(volume, self.nii_affine)
         nib.save(img, filename)
