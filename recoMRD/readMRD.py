@@ -251,6 +251,11 @@ class readMRD(object):
     # Coordinate transformation
     def _extract_transformation(self):
         hdr = self.hdr
+
+        if self.dim_info['pe2']['len']>1 and self.dim_info['slc']['len']>1:
+            print(f"\033[91mMulti-Slab acqusition is not supported yet!\033[0m")
+            return
+    
         transformation = {}
         transformation['soda'] = np.zeros((self.dim_info['slc']['len'], 4, 4))
         offcenter = np.zeros(3)
@@ -282,11 +287,16 @@ class readMRD(object):
 
         PixelSpacing = [self.fov['image']['x'] / self.matrix_size['image']['x'], 
                         self.fov['image']['y'] / self.matrix_size['image']['y']]
+        
+        n_slice = self.matrix_size['image']['z']
+        if n_slice == 1:
+            n_slice = self.dim_info['slc']['len']
+
         R = T[:,0:2] @ np.diag(PixelSpacing)
         x1 = [1,1,1,1]
-        x2 = [1,1,self.matrix_size['image']['z'],1]
+        x2 = [1,1,n_slice,1]
         
-        thickness = self.fov['image']['z'] / self.matrix_size['image']['z']
+        thickness = self.fov['image']['z'] / n_slice
         zmax = (self.fov['image']['z'] - thickness) / 2
         y1_c = T @ [0, 0, -zmax, 1]
         y2_c = T @ [0, 0, +zmax, 1]
@@ -294,6 +304,7 @@ class readMRD(object):
         y1 = y1_c - T[:,0] * self.fov['image']['x']/2 - T[:,1] * self.fov['image']['y']/2
         y2 = y2_c - T[:,0] * self.fov['image']['x']/2 - T[:,1] * self.fov['image']['y']/2
         
+        print(np.column_stack((x1, x2, np.eye(4,2))))
         DicomToPatient  = np.column_stack((y1, y2, R)) @ np.linalg.inv(np.column_stack((x1, x2, np.eye(4,2))))
         # Flip voxels in y
         
