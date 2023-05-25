@@ -1,6 +1,7 @@
 # recoMRD
 Scripts to read and reconstruct ismrmrd (mrd) format
 
+There are a few jupyter notebooks in the example folder to demo how to use recoMRD. Testing MRD files can be downloaded from [here](https://keeper.mpdl.mpg.de/d/77583249089d470183f2/).
 
 ## Install
 
