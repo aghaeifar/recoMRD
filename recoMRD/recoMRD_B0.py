@@ -2,7 +2,7 @@ import os
 import ctypes
 import numpy as np
 from .recoMRD import recoMRD
-from scipy import ndimage
+from .utils import create_brain_mask
 
 class recoMRD_B0(recoMRD):
     dTE         = 0
@@ -41,7 +41,9 @@ class recoMRD_B0(recoMRD):
         self.coil_combination(self.img, method='sos', coil_sens=None)
 
     ##########################################################
-    def get_b0hz(self, b0_uw:np.ndarray, offset = 0):
+    def get_b0hz(self, b0_uw:np.ndarray = None, offset = 0):
+        if b0_uw is None:
+            b0_uw = self.unwrap_b0()
         if b0_uw.shape != self.img_b0.shape:
             print(f"\033[93mUnwrapped image is not yet calculated. \033[0m")
             return None
@@ -68,28 +70,6 @@ class recoMRD_B0(recoMRD):
         return (b0_uw.copy(order='C')) 
                      
     ##########################################################
-    def create_mask(self, erode_size = 3):
-        print('Creating mask...')
-        mask_size = [x for x in self.img_mag.shape if x > 1]
-        if len(mask_size) != 3 :
-            print(f'Only 3D data is supported for masking. Input shape is {mask_size}')
-            return
-
-        dir_path = os.path.dirname(os.path.realpath(__file__))
-        handle   = ctypes.CDLL(os.path.join(dir_path, "lib", "libbet2.so")) 
-        handle.runBET.argtypes = [np.ctypeslib.ndpointer(np.float32, ndim=self.img_mag.ndim, flags='F'),
-                                  np.ctypeslib.ndpointer(np.float32, ndim=len(mask_size), flags='F'),
-                                  ctypes.c_int, ctypes.c_int, ctypes.c_int]
-                                  
-        mag = self.img_mag.copy(order='F')
-        mask = np.zeros(mask_size, dtype=mag.dtype, order='F')
-        handle.runBET(mag, mask, *mask_size) # 3D input     
-        if erode_size > 1:            
-            es = erode_size
-            mask = ndimage.binary_erosion(mask, structure=np.ones((es,es,es))).astype(self.img_mask.dtype)
-            mask = np.asfortranarray(mask)  # binary_erosion changes order to C_CONTIGUOUS
-
-        self.img_mask =  mask.reshape(self.img_mag.shape).copy(order='C') 
 
     def coil_combination(self, volume, method='sos', coil_sens=None):
         self.img_mag  = super().coil_combination(volume, method='sos')[:,:,:,:,:,0:1,0:1,0:1,0:1,0:1,0:1].copy() # I used 0:1 rather than  0 fro indexing to keep singleton dimensions. See https://stackoverflow.com/questions/3551242

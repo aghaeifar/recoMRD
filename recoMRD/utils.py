@@ -1,7 +1,9 @@
-
+import os
+import ctypes
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage.util import montage
+from scipy import ndimage
 
 # ifftnd and fftnd are taken from twixtools package
 def ifftnd(kspace:np.ndarray, axes=[-1]):
@@ -12,6 +14,7 @@ def ifftnd(kspace:np.ndarray, axes=[-1]):
     img *= np.sqrt(np.prod(np.take(img.shape, axes)))
     return img
 
+
 def fftnd(img:np.ndarray, axes=[-1]):
     from numpy.fft import fftshift, ifftshift, fftn
     if axes is None:
@@ -19,6 +22,32 @@ def fftnd(img:np.ndarray, axes=[-1]):
     kspace  = fftshift(fftn(ifftshift(img, axes=axes), axes=axes), axes=axes)
     kspace /= np.sqrt(np.prod(np.take(kspace.shape, axes)))
     return kspace
+
+
+def create_brain_mask(volume: np.ndarray, erode_size=3):
+    mask_size = [x for x in volume.shape if x > 1]
+    if len(mask_size) != 3:
+        print(f'Only 3D data is supported for masking. Input shape is {mask_size}')
+        return
+
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    handle   = ctypes.CDLL(os.path.join(dir_path, "lib", "libbet2.so"))
+    handle.runBET.argtypes = [np.ctypeslib.ndpointer(np.float32, ndim=volume.ndim, flags='F'),
+                              np.ctypeslib.ndpointer(
+                              np.float32, ndim=len(mask_size), flags='F'),
+                              ctypes.c_int, ctypes.c_int, ctypes.c_int]
+
+    mag = volume.copy(order='F')
+    mask = np.zeros(mask_size, dtype=mag.dtype, order='F')
+    handle.runBET(mag, mask, *mask_size)  # 3D input
+    if erode_size > 1:
+        es = erode_size
+        mask = ndimage.binary_erosion(mask, structure=np.ones((es, es, es))).astype(volume.dtype)
+        # binary_erosion changes order to C_CONTIGUOUS
+        mask = np.asfortranarray(mask)
+
+    return mask.reshape(volume.shape).copy(order='C')
+
 
 
 def plot3D(img:np.ndarray, cmap='turbo', clim=None, pos = None):
