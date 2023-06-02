@@ -51,6 +51,7 @@ def create_brain_mask(volume: np.ndarray, erode_size=3):
 
 
 def plot3D(img:np.ndarray, cmap='turbo', clim=None, pos = None):
+    img = img.squeeze()
     if pos is None:
         pos = [x//2 for x in img.shape[0:3]]
         
@@ -69,7 +70,7 @@ def plot3D(img:np.ndarray, cmap='turbo', clim=None, pos = None):
 
 
 def plot_mosaic(img:np.ndarray, cmap='turbo', clim=None, grid_shape=None, title=None, transpose=False):
-    img = np.squeeze(img) 
+    img = np.squeeze(np.abs(img)) 
     if img.ndim > 3:
         print(f'Error! plot_mosaic expects 3D data but it is {img.ndim}D')
         return
@@ -77,7 +78,7 @@ def plot_mosaic(img:np.ndarray, cmap='turbo', clim=None, grid_shape=None, title=
     img = montage(img, fill=0, grid_shape=grid_shape)
     if transpose:
         img = img.T
-        
+    
     plt.figure()
     plt.imshow(img, cmap=cmap, clim=clim)
     plt.axis('off')

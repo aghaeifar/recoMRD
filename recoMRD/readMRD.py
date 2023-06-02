@@ -15,7 +15,7 @@ class readMRD(object):
     xml_hdr  = None
     dim_info = None
     dim_size = None  
-    dim_enc = None  
+    dim_enc  = None  
     is3D     = False
     kspace   = {}         
     matrix_size         = None
@@ -27,8 +27,8 @@ class readMRD(object):
     isParallelImaging   = False
     isRefScanSeparate   = False
     isPartialFourierRO  = False
-    isPartialFourierPE1 = None
-    isPartialFourierPE2 = None
+    isPartialFourierPE1 = False
+    isPartialFourierPE2 = False
     acceleration_factor = [1,1]
 
     
@@ -37,9 +37,9 @@ class readMRD(object):
             raise SystemExit('Python version >= 3.7.x is required. Aborting...')
 
         self.filename  = filename                
-        self.readmrd_tags = ['cha', 'ro', 'pe1', 'pe2', 'slc', 'eco', 'rep', 'set', 'seg', 'ave', 'phs'] # order matters here
-        self.ismrmrd_tags = ['', '', 'kspace_encode_step_1', 'kspace_encode_step_2', 'slice', 'contrast', 'repetition', 'set', 'segment', 'average', 'phase']
-        self.dim_enc      = [1, 2, 3]
+        self.readmrd_tags = ('cha', 'ro', 'pe1', 'pe2', 'slc', 'eco', 'rep', 'set', 'seg', 'ave', 'phs') # order matters here
+        self.ismrmrd_tags = ('', '', 'kspace_encode_step_1', 'kspace_encode_step_2', 'slice', 'contrast', 'repetition', 'set', 'segment', 'average', 'phase')
+        self.dim_enc      = (1, 2, 3)
         self.kspace = {}
         self.dim_info = {}
         for i in range(len(self.readmrd_tags)):
@@ -53,7 +53,6 @@ class readMRD(object):
         self._extract_transformation()
         if self.is3D == False:
             self._reorder_slice()
-
 
     def _import_mrd(self):
         if not os.path.isfile(self.filename):
@@ -160,6 +159,7 @@ class readMRD(object):
         self.acceleration_factor = [enc.parallelImaging.accelerationFactor.kspace_encoding_step_1, enc.parallelImaging.accelerationFactor.kspace_encoding_step_2]
         if self.acceleration_factor[0] > 1 or self.acceleration_factor[1] > 1 :
             print(f'Acceleration factor: {self.acceleration_factor[0]} x {self.acceleration_factor[1]}')
+            self.isParallelImaging = True
             if np.bitwise_and( self.hdr['flags'] , 1 << ismrmrd.ACQ_IS_PARALLEL_CALIBRATION_AND_IMAGING-1).astype(bool).any():
                 self.isRefScanSeparate = False
                 print('Reference scan type: integrated')
@@ -233,7 +233,7 @@ class readMRD(object):
             pad   = np.zeros((len(self.dim_size) ,2), dtype=int) # pad must be of the same size as the dimension of the input array
             pad[self.dim_enc,:] = np.vstack((pad_a, pad_b)).T    # padding only for the encoding dimensions
             self.kspace['acs'] = np.pad(self.kspace['acs'], pad, mode ='constant') 
-
+        
     def _reorder_slice(self):
         print('Reorder slice...', end=' ')
         unsorted_order = np.zeros((self.dim_info['slc']['len']))
@@ -304,7 +304,6 @@ class readMRD(object):
         y1 = y1_c - T[:,0] * self.fov['image']['x']/2 - T[:,1] * self.fov['image']['y']/2
         y2 = y2_c - T[:,0] * self.fov['image']['x']/2 - T[:,1] * self.fov['image']['y']/2
         
-        print(np.column_stack((x1, x2, np.eye(4,2))))
         DicomToPatient  = np.column_stack((y1, y2, R)) @ np.linalg.inv(np.column_stack((x1, x2, np.eye(4,2))))
         # Flip voxels in y
         

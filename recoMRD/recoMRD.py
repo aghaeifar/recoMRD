@@ -18,64 +18,90 @@ class recoMRD(readMRD):
         super().__init__(filename)
 
 
-    def runReco(self):
-        self.img = self.kspace_to_image(self.kspace['image_scan'])
-        self.img = self.remove_oversampling(self.img)
-        self.img = self.coil_combination(self.img, method='sos')
+    def runReco(self, method_sensitivity='caldir', method_coilcomb='bart'):
+        kspace_osremoved = self.remove_oversampling(self.kspace['image_scan'], is_kspace=True)
+        # Partial Fourier?
+        if self.isPartialFourierRO:
+            kspace_osremoved = self.POCS(kspace_osremoved, dim_pf= self.dim_info['ro']['ind'])
+        if self.isPartialFourierPE1:
+            kspace_osremoved = self.POCS(kspace_osremoved, dim_pf= self.dim_info['pe1']['ind'])
+        if self.isPartialFourierPE2:
+            kspace_osremoved = self.POCS(kspace_osremoved, dim_pf= self.dim_info['pe2']['ind'])
+
+        coils_sensitivity = None
+        # Parallel Imaging?
+        if self.isParallelImaging:
+            acs_img = self.kspace['acs']
+            acs_img = self.remove_oversampling(acs_img, is_kspace=True)
+            coils_sensitivity = self.calc_coil_sensitivity(acs_img, method=method_sensitivity)
+        else:
+            coils_sensitivity = self.calc_coil_sensitivity(kspace_osremoved, method=method_sensitivity)
+
+        self.img = self.coil_combination(kspace_osremoved, method=method_coilcomb, coil_sens=coils_sensitivity)
 
     ##########################################################
     # applying iFFT to kspace and build image
-    def kspace_to_image(self, kspace:np.ndarray):
+    def kspace_to_image(self, kspace:np.ndarray, axes=None):
         if kspace.ndim != len(self.dim_size):
             print(f'Error! shape is wrong. {kspace.shape} vs {self.dim_size}')
             return
+        if axes is None:
+            axes = self.dim_enc
 
         img = np.zeros_like(kspace, dtype=np.complex64)
         # this loop is slow because of order='F' and ind is in the first dimensions. see above, _create_kspace(). 
         for ind in tqdm(range(self.dim_info['cha']['len']), desc='Fourier transform'):
-            img[ind,...] = ifftnd(kspace[ind,...], [0,1,2])        
+            img[ind,...] = ifftnd(kspace[[ind],...], axes=axes) # [ind] --> https://stackoverflow.com/questions/3551242/
         return img
 
-    def image_to_kspace(self, img:np.ndarray):
+    def image_to_kspace(self, img:np.ndarray, axes=None):
         if img.ndim != len(self.dim_size):
             print(f'Error! shape is wrong. {img.shape} vs {self.dim_size}')
             return
+        if axes is None:
+            axes = self.dim_enc
 
         kspace = np.zeros_like(img, dtype=np.complex64)
         # this loop is slow because of order='F' and ind is in the first dimensions. see above, _create_kspace(). 
         for ind in tqdm(range(self.dim_info['cha']['len']), desc='Fourier transform'):
-            kspace[ind,...] = fftnd(img[ind,...], [0,1,2])        
+            kspace[ind,...] = fftnd(img[[ind],...], axes=axes) # [ind] --> https://stackoverflow.com/questions/3551242/     
         return kspace
 
     ##########################################################
-    def coil_combination(self, volume:np.ndarray, method='sos', coil_sens=None):
-        if volume.ndim != len(self.dim_size):
-            print(f'Input size not valid. {volume.shape} != {self.dim_size}')
+    def coil_combination(self, kspace:np.ndarray, method='sos', coil_sens=None):
+        if kspace.ndim != len(self.dim_size):
+            print(f'Input size is not valid. {kspace.shape} != {self.dim_size}')
             return
+        if coil_sens is not None:
+            if kspace.shape[:self.dim_info['slc']['ind']+1] != coil_sens.shape:
+                print(f'Coils Sens. size is not valid. {kspace.shape[:self.dim_info["slc"]["ind"]+1]} != {coil_sens.shape}')
+                return
 
         all_methods = ('sos', 'bart', 'adaptive')
         if method.lower() not in all_methods:
             print(f'Given method is not valid. Choose between {", ".join(all_methods)}')
             return
         
-        shp = (1,) + volume.shape[1:]
-        volume_comb = np.sqrt(np.sum(abs(volume)**2, self.dim_info['cha']['ind'], keepdims=True))
+        shp = (1,) + kspace.shape[1:]
+        # sos    
+        volume       = self.kspace_to_image(kspace) # is needed in 'adaptive'
+        volume_comb  = np.sqrt(np.sum(abs(volume)**2, self.dim_info['cha']['ind'], keepdims=True)) # is needed in 'bart' to calculate scale factor
         if method.lower() == 'bart' and coil_sens is not None:
-            l2_reg    = 1e-4
-            volume    = np.moveaxis(volume, 0, 3) # adapting to bart CFL format: [RO, PE1, PE2, CHA, ...] see https://bart-doc.readthedocs.io/en/latest/data.html or https://github.com/mrirecon/bart/blob/master/src/misc/mri.h
-            coil_sens = np.moveaxis(coil_sens, 0, 3) # adapting to bart CFL format
-            n_extra1  = np.prod(volume.shape[4:]) # number of extra dims  
-            n_extra2  = np.prod(volume.shape[5:]) # number of extra dims excluing slice
-            kspace    = volume.reshape(volume.shape[:4] +(-1,)) # flatten extra dims
+            l2_reg       = 1e-4
+            kspace       = np.moveaxis(kspace, 0, 3) # adapting to bart CFL format: [RO, PE1, PE2, CHA, ...] see https://bart-doc.readthedocs.io/en/latest/data.html or https://github.com/mrirecon/bart/blob/master/src/misc/mri.h
+            coil_sens    = np.moveaxis(coil_sens, 0, 3) # adapting to bart CFL format
+            n_nonBART1   = np.prod(kspace.shape[self.dim_info['slc']['ind']:]) # number of non-BART dims 
+            n_nonBART2   = np.prod(kspace.shape[self.dim_info['slc']['ind']+1:]) # number of non-BART dims ecluding slice dim
+            kspace       = kspace.reshape(kspace.shape[:4] +(-1,)) # flatten extra dims
             volume_comb  = volume_comb.reshape(volume_comb.shape[:4] + (-1,)) # flatten extra dims for output
             scale_factor = [np.percentile(volume_comb[...,ind], 99).astype(np.float32) for ind in range(volume_comb.shape[-1])]
-            recon     = [bart.bart(1, 'pics -w {} -R Q:{} -S'.format(scale_factor[ind], l2_reg), kspace[...,ind], coil_sens[...,ind%n_extra2]) for ind in range(n_extra1)]
+            recon        = [bart.bart(1, 'pics -w {} -R Q:{} -S'.format(scale_factor[ind], l2_reg), kspace[...,ind], coil_sens[...,ind//n_nonBART2]) for ind in range(n_nonBART1)]
             volume_comb  = np.stack(recon, axis=recon[0].ndim).reshape(shp)
 
         elif method.lower() == 'adaptive' and coil_sens is not None:
-            coil_sens   = np.expand_dims(coil_sens, axis=[*range(coil_sens.ndim, volume.ndim)]) # https://numpy.org/doc/stable/user/basics.broadcasting.html
-            volume_comb = np.divide(volume, coil_sens, out=np.zeros_like(coil_sens), where=coil_sens!=0)
-            volume_comb = np.sum(volume_comb, self.dim_info['cha']['ind'], keepdims=True)
+            coil_sens    = np.expand_dims(coil_sens, axis=[*range(coil_sens.ndim, kspace.ndim)]) # https://numpy.org/doc/stable/user/basics.broadcasting.html
+            volume_comb  = np.divide(volume, coil_sens, out=np.zeros_like(coil_sens), where=coil_sens!=0)
+            volume_comb  = np.sum(volume_comb, self.dim_info['cha']['ind'], keepdims=True)
 
         return volume_comb
 
@@ -154,7 +180,7 @@ class recoMRD(readMRD):
 
     ##########################################################
     def remove_oversampling(self, img:np.ndarray, is_kspace=False):
-        if img.squeeze().ndim != len([i for i in self.dim_size if i>1]):
+        if img.ndim != len(self.dim_size):
             print(f'Error! shape is wrong. {img.shape} vs {self.dim_size}')
             return
         
@@ -191,55 +217,59 @@ class recoMRD(readMRD):
     ##########################################################
     # Partial Fourier using Projection onto Convex Sets
     def POCS(self, kspace:np.ndarray, dim_pf=1, number_of_iterations=5):
-
-        dims_enc = [self.dim_info['ro']['ind'], self.dim_info['pe1']['ind'] , self.dim_info['pe2']['ind']]
-        dims_nopocs = tuple([int(x) for x in range(kspace.ndim) if x != dim_pf])        
-        dims_nopocs_enc = dims_enc.copy()
-        dims_nopocs_enc.remove(dim_pf)
+        print(f'POCS reconstruction along dim = {dim_pf} started...')
+        dim_nonpf = tuple([int(x) for x in range(kspace.ndim) if x != dim_pf])        
+        dim_nonpf_enc = tuple(set(self.dim_enc) & set(dim_nonpf))
 
         n_full = kspace.shape[dim_pf]
-        n_zpf  = n_full - (self.enc_minmax_ind[dim_pf][1] - self.enc_minmax_ind[dim_pf][0]) # number of zeros along partial fourier dimension 
-        minmax_ind = [self.enc_minmax_ind[dim_pf][0], self.enc_minmax_ind[dim_pf][1]]
+        # n_zpf  = n_full - (self.enc_minmax_ind[dim_pf][1] - self.enc_minmax_ind[dim_pf][0]) # number of zeros along partial fourier dimension 
+        # minmax_ind = [self.enc_minmax_ind[dim_pf][0], self.enc_minmax_ind[dim_pf][1]]
 
-        mask_raw = np.sum(np.abs(kspace), dims_nopocs) > 0
-        ind_one  = np.nonzero(mask_raw == True)[0].tolist()
-        nopocs_range = np.arange(ind_one[-1]+1)
-        if ind_one[0] > (mask_raw.size - ind_one[-1] - 1):
-            nopocs_range = np.arange(ind_one[0], mask_raw.size)
+        # mask for partial Fourier dimension taking accelleration into account
+        mask_pf_acc = np.sum(np.abs(kspace), dim_nonpf) > 0
+        ind_one  = np.nonzero(mask_pf_acc == True)[0].tolist()
+        # partial Fourier is at the beginning or end of the dimension
+        nopocs_range = np.arange(ind_one[-1]+1) # nopocs_range does not take accelleration into account, right?
+        if ind_one[0] > (mask_pf_acc.size - ind_one[-1] - 1): # check which side has more zeros, beginning or end
+            nopocs_range = np.arange(ind_one[0], mask_pf_acc.size)
 
-        acc = ind_one[1] - ind_one[0]
-        shift = acc * ((mask_raw.size - nopocs_range.size) // acc)
-        if nopocs_range[-1] == mask_raw.size - 1:
+        # accelleration in partial Fourier direction
+        acc_pf = ind_one[1] - ind_one[0]
+        shift = acc_pf * ((mask_pf_acc.size - nopocs_range.size) // acc_pf)
+        if nopocs_range[-1] == mask_pf_acc.size - 1: # again, check which side partial Fourier is
             shift = -shift
 
-        # mask for non pocs dimension
-        mask_raw[nopocs_range] = True
-        mask_nonpocs = np.broadcast_to(np.expand_dims(mask_raw, axis=dims_nopocs), kspace.shape)
-
-        # mask for pocs dimensions
-        mask_pocs = np.abs(kspace) > 0
-        mask_pocs = mask_pocs | np.roll(mask_pocs, shift, axis=dim_pf) # expland mask along pocs direction
+        # mask if there was no accelleration in PF direction
+        mask_pf = mask_pf_acc.copy()
+        mask_pf[nopocs_range] = True 
+        # vector mask for central region
+        mask_sym = mask_pf & np.flip(mask_pf)
+        # mask for entire kspace with no accelleration in PF direction
+        mask_pf = np.broadcast_to(np.expand_dims(mask_pf, axis=dim_nonpf), kspace.shape)
         
-        # vector mask for symmetric region
-        mask_sym = mask_raw & np.flip(mask_raw)
-
+        # mask that takes accelleration into account without partial Fourier
+        mask_nonpf = np.abs(kspace) > 0
+        mask_nonpf = mask_nonpf | np.roll(mask_nonpf, shift, axis=dim_pf) # expland mask along pocs direction
+        
+        # gaussian mask for central region in partial Fourier dimension
         gauss_pdf = sp.stats.norm.pdf(np.linspace(0, 1, n_full), 0.5, 0.05) * mask_sym
+        # kspace smoothed with gaussian profile and masked central region
         kspace_symmetric = kspace.copy()
         kspace_symmetric = np.swapaxes(np.swapaxes(kspace_symmetric, dim_pf, -1) * gauss_pdf, -1, dim_pf)
 
-        angle_kspace_symmetric = ifftnd(kspace_symmetric, axes = dims_enc) # along all encoding directions
-        angle_kspace_symmetric = np.exp(1j * np.angle(angle_kspace_symmetric))
+        angle_image_symmetric = self.kspace_to_image(kspace_symmetric)
+        angle_image_symmetric = np.exp(1j * np.angle(angle_image_symmetric))
 
-        kspace_full = ifftnd(kspace, axes=dims_nopocs_enc) # along non-pocs encoding directions
+        kspace_full = self.kspace_to_image(kspace, axes=dim_nonpf_enc) # along non-pf encoding directions
         kspace_full_clone = kspace_full.copy()
-        for i in range(number_of_iterations):
-            image_full  = ifftnd(kspace_full, axes=dim_pf)
-            image_full  = np.abs(image_full) * angle_kspace_symmetric
-            kspace_full = fftnd(image_full, axes=dim_pf)
-            np.putmask(kspace_full, mask_nonpocs, kspace_full_clone) # replace elements of kspace_full from kspace_full_clone based on mask_pocs
+        for ind in range(number_of_iterations):
+            image_full  = self.kspace_to_image(kspace_full, axes=[dim_pf])
+            image_full  = np.abs(image_full) * angle_image_symmetric
+            kspace_full = self.image_to_kspace(image_full, axes=[dim_pf])
+            np.putmask(kspace_full, mask_pf, kspace_full_clone) # replace elements of kspace_full from kspace_full_clone based on mask_nonpf
 
-        kspace_full = fftnd(kspace_full, axes=dims_nopocs_enc)
-        np.putmask(kspace_full, np.logical_not(mask_pocs), 0)
+        kspace_full = self.image_to_kspace(kspace_full, axes=dim_nonpf_enc)
+        np.putmask(kspace_full, np.logical_not(mask_nonpf), 0)
         return kspace_full
 
     
@@ -253,8 +283,7 @@ class recoMRD(readMRD):
 
     ##########################################################
     # Save a custom volume as nifti
-    def make_nifti(self, volume:np.ndarray, filename):
-        
+    def make_nifti(self, volume:np.ndarray, filename):        
         # input must have same dimension ordering as dim_info
         df = self.dim_info
         check_dims = [df['ro']['ind'], df['pe1']['ind'], df['pe2']['ind'], df['slc']['ind'], df['rep']['ind']]
