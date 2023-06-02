@@ -2,41 +2,62 @@ import os
 import ctypes
 import numpy as np
 from .recoMRD import recoMRD
-from scipy import ndimage
+
+#
+# see: https://onlinelibrary.wiley.com/doi/10.1002/mrm.29459
+#
+
+OPERTATING_MODE  = 'alICEProgramPara[10]'
+ABSOLUTE_MODE    = 'alICEProgramPara[12]'
+RELATIVE_MODE    = 'alICEProgramPara[15]'
+PULSE_INTEGRAL   = 'alICEProgramPara[17]'
+PULSE_DURATION   = 'alICEProgramPara[14]'
+NUM_TX_ABS       = 'alICEProgramPara[11]'
+NUM_TX_REL       = 'alICEProgramPara[16]'
+
+HAS_ABSOLUTE_MAP = 1<<0
+HAS_RELATIVE_MAP = 1<<1
+HAS_B0_MAP       = 1<<3
+HAS_SINC_SAT     = 1<<4
+
+PTX_MODE_CP     = 1
+PTX_MODE_ONEON  = 2
+PTX_MODE_ONEOFF = 3
+PTX_MODE_ONEINV = 4
+
 
 class recoMRD_B1TFL(recoMRD):
-    dTE       = 0
+    nTx       = 0
     img_b1mag = np.empty([1])
     img_b1phs = np.empty([1])    
     img_mask  = np.empty([1])
     img_cp    = np.empty([1]) # unwrapped 
+    params    = {OPERTATING_MODE:0, ABSOLUTE_MODE:0, RELATIVE_MODE:0, PULSE_INTEGRAL:0, PULSE_DURATION:0, NUM_TX_ABS:0, NUM_TX_REL:0}
 
     def __init__(self, filename=None):
         super().__init__(filename)
+        self.parseHeader()
+        self.runReco()    
+
+    def parseHeader(self):
+        for pl in self.xml_hdr.userParameters.userParameterLong:
+            if pl.name in self.params:
+                self.params[pl.name] = pl.value
+
+        print(f'Operating Mode: {self.params[OPERTATING_MODE]}\n' +
+              f'Absolute Mode: {self.params[ABSOLUTE_MODE]}\n' + 
+              f'Relative Mode: {self.params[RELATIVE_MODE]}\n' +
+              f'Num Tx (Abs, Rel) : {self.params[NUM_TX_ABS]}, {self.params[NUM_TX_REL]}\n' +
+              f'Pulse Duration and Inegral: {self.params[PULSE_DURATION]}, {self.params[PULSE_INTEGRAL]}\n')
         
-
-    def _custom_task(self):
-        pass
-
-    
-    def create_mask(self, erode_size = 3):
-        print('Creating mask...')
-        mask_size = [x for x in self.img_cp.shape if x > 1]
-        if len(mask_size) != 3 :
-            print(f'Only 3D data is supported for masking. Input shape is {mask_size}')
+        if self.params[NUM_TX_ABS] != self.params[NUM_TX_REL]:
+            print(f'\033[93mNumber of absolute and relative transmit channels do not match: {self.params[NUM_TX_ABS]} vs {self.params[NUM_TX_REL]}\033[0m')
             return
+        if self.params[OPERTATING_MODE] & HAS_ABSOLUTE_MAP == 0 or self.params[OPERTATING_MODE] & HAS_RELATIVE_MAP == 0:
+            print(f'\033[93mAbsolute and relative maps must present.\033[0m')
+            return  
+        nTx = self.params[NUM_TX_ABS] 
+        
+    def runReco(self):
+        super().runReco()
 
-        dir_path = os.path.dirname(os.path.realpath(__file__))
-        handle   = ctypes.CDLL(os.path.join(dir_path, "lib", "libbet2.so")) 
-        handle.runBET.argtypes = [np.ctypeslib.ndpointer(np.float32, ndim=self.img_cp.ndim, flags='F'),
-                                  np.ctypeslib.ndpointer(np.float32, ndim=len(mask_size), flags='F'),
-                                  ctypes.c_int, ctypes.c_int, ctypes.c_int]
-        mag = self.img_cp.copy(order='F')
-        mask = np.zeros(mask_size, dtype=mag.dtype, order='F')
-        handle.runBET(mag, mask, *mask_size) # 3D input     
-        if erode_size > 1:            
-            es = erode_size
-            mask = ndimage.binary_erosion(mask, structure=np.ones((es,es,es))).astype(self.img_mask.dtype)
-            mask = np.asfortranarray(mask)  # binary_erosion changes order to C_CONTIGUOUS
-
-        self.img_mask =  mask.reshape(self.img_cp.shape).copy(order='C')
