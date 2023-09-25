@@ -10,12 +10,12 @@ from setuptools import setup
 
 
 setup(name='recoMRD', # this will be name of package in packages list : pip list 
-      version='1.0',
+      version='2.0',
       description='Reconstruction utilities for ismrmrd (MRD) files',
       keywords='ismrmrd,reconstruction,mri,nifti,ismrmrd2nifti',
       author='Ali Aghaeifar',
       author_email='ali.aghaeifar [at] tuebingen.mpg [dot] de',
       license='MIT License',
       packages=['recoMRD'],
-      install_requires = ['tqdm','numpy','nibabel','ismrmrd','h5py','scipy', 'scikit-image','matplotlib']
+      install_requires = ['tqdm','numpy','nibabel','ismrmrd','h5py', 'torch']
      )

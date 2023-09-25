@@ -1,7 +1,7 @@
 import os
 import ctypes
 import numpy as np
-from .recoMRD import recoMRD
+from recoMRD import recoMRD
 
 #
 # see: https://onlinelibrary.wiley.com/doi/10.1002/mrm.29459
@@ -34,8 +34,8 @@ class recoMRD_B1TFL(recoMRD):
     img_cp    = np.empty([1]) # unwrapped 
     params    = {OPERTATING_MODE:0, ABSOLUTE_MODE:0, RELATIVE_MODE:0, PULSE_INTEGRAL:0, PULSE_DURATION:0, NUM_TX_ABS:0, NUM_TX_REL:0}
 
-    def __init__(self, filename=None):
-        super().__init__(filename)
+    def __init__(self, filename=None, device='cpu'):
+        super().__init__(filename, device)        
         self.parseHeader()
         self.runReco()    
 
@@ -58,6 +58,24 @@ class recoMRD_B1TFL(recoMRD):
             return  
         nTx = self.params[NUM_TX_ABS] 
         
+
     def runReco(self):
         super().runReco()
+        scale_factor_abs = self.getTxScaleFactor(self.params[ABSOLUTE_MODE])
+        scale_factor_abs = self.getTxScaleFactor(self.params[RELATIVE_MODE])
 
+    def getTxScaleFactor(self, mode):
+        rfmode = {PTX_MODE_CP:{}, PTX_MODE_ONEON:{}, PTX_MODE_ONEOFF:{}, PTX_MODE_ONEINV:{}}
+        rfmode[PTX_MODE_CP]     = {'diag':complex( 1.0, 0.0), 'offdiag':complex(1.0, 0.0)}
+        rfmode[PTX_MODE_ONEON]  = {'diag':complex( 1.0, 0.0), 'offdiag':complex(0.0, 0.0)}
+        rfmode[PTX_MODE_ONEOFF] = {'diag':complex( 0.0, 0.0), 'offdiag':complex(1.0, 0.0)}
+        rfmode[PTX_MODE_ONEINV] = {'diag':complex(-1.0, 0.0), 'offdiag':complex(1.0, 0.0)}
+
+        if mode not in rfmode:
+            print(f'\033[93mUnknown RF mode: {mode}\033[0m')
+            return
+
+        scale_factor = np.full((self.nTx, self.nTx), rfmode[mode]['offdiag'] )
+        np.fill_diagonal(scale_factor, rfmode[mode]['diag'])
+
+        return scale_factor

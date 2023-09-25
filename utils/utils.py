@@ -5,24 +5,6 @@ import matplotlib.pyplot as plt
 from skimage.util import montage
 from scipy import ndimage
 
-# ifftnd and fftnd are taken from twixtools package
-def ifftnd(kspace:np.ndarray, axes=[-1]):
-    from numpy.fft import fftshift, ifftshift, ifftn
-    if axes is None:
-        axes = range(kspace.ndim)
-    img  = fftshift(ifftn(ifftshift(kspace, axes=axes), axes=axes), axes=axes)
-    img *= np.sqrt(np.prod(np.take(img.shape, axes)))
-    return img
-
-
-def fftnd(img:np.ndarray, axes=[-1]):
-    from numpy.fft import fftshift, ifftshift, fftn
-    if axes is None:
-        axes = range(img.ndim)
-    kspace  = fftshift(fftn(ifftshift(img, axes=axes), axes=axes), axes=axes)
-    kspace /= np.sqrt(np.prod(np.take(kspace.shape, axes)))
-    return kspace
-
 
 def create_brain_mask(volume: np.ndarray, erode_size=3):
     mask_size = [x for x in volume.shape if x > 1]
@@ -48,25 +30,6 @@ def create_brain_mask(volume: np.ndarray, erode_size=3):
 
     return mask.reshape(volume.shape).copy(order='C')
 
-
-
-def plot3D(img:np.ndarray, cmap='turbo', clim=None, pos = None):
-    img = img.squeeze()
-    if pos is None:
-        pos = [x//2 for x in img.shape[0:3]]
-        
-    plt.figure()
-    plt.subplot(131)
-    plt.imshow(img[:,:,pos[2]], cmap=cmap, origin='lower',clim=clim)
-    plt.axis('off')
-    plt.subplot(132)
-    plt.imshow(img[:,pos[1],:], cmap=cmap, origin='lower',clim=clim)
-    plt.axis('off')
-    plt.subplot(133)
-    plt.imshow(img[pos[0],:,:], cmap=cmap, origin='lower',clim=clim)
-    plt.axis('off')
-    plt.colorbar()
-    plt.tight_layout() 
 
 
 def plot_mosaic(img:np.ndarray, cmap='turbo', clim=None, grid_shape=None, title=None, transpose=False):

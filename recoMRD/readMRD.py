@@ -223,7 +223,7 @@ class readMRD(object):
                 for ind1, ind2 in zip(tqdm(list(*np.where(self.flags[scan_type])), desc=f'Filling {scan_type:<10}, size={dim_size_local}'), range(len(self.kspace[scan_type]))):
                     data_tr = self.data[ind1][0::2] + 1j*self.data[ind1][1::2]
                     self.kspace[scan_type][ind2] = data_tr
-                self.kspace[scan_type] = np.array(self.kspace[scan_type], dtype="O") # convert list to numpy array
+                # self.kspace[scan_type] = np.array(self.kspace[scan_type], dtype="O") # convert list to numpy array
 
         # pad the ACS data to the same size as the image data
         if 'acs' in existing_scans:          

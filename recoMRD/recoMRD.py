@@ -1,74 +1,116 @@
 import os
+import math
 import ctypes
+import torch
 import numpy as np
-import scipy as sp
 import nibabel as nib
 from bart import bart
 from tqdm import tqdm
 from .readMRD import readMRD
-from .utils import ifftnd, fftnd
+
+BART_COIL_DIM  = 3
+BART_SLICE_DIM = 13
+BART_BATCH_DIM = 15
+BART_TE_DIM    = 5
+
+def ifftnd(kspace:torch.Tensor, axes=[-1]):
+    from torch.fft import fftshift, ifftshift, ifftn
+    if axes is None:
+        axes = range(kspace.ndim)
+    img  = fftshift(ifftn(ifftshift(kspace, dim=axes), dim=axes), dim=axes)
+    return img
 
 
+def fftnd(img:torch.Tensor, axes=[-1]):
+    from torch.fft import fftshift, ifftshift, fftn
+    if axes is None:
+        axes = range(img.ndim)
+    kspace  = fftshift(fftn(ifftshift(img, dim=axes), dim=axes), dim=axes)
+    return kspace
+
+# adapting to bart CFL format, see https://bart-doc.readthedocs.io/en/latest/data.html or https://github.com/mrirecon/bart/blob/master/src/misc/mri.h
+# Dimensions in BART (/src/misc/mri.h):
+#   [READ_DIM, PHS1_DIM, PHS2_DIM, COIL_DIM, MAPS_DIM, TE_DIM, COEFF_DIM, COEFF2_DIM, ITER_DIM, CSHIFT_DIM, TIME_DIM, TIME2_DIM, LEVEL_DIM, SLICE_DIM, AVG_DIM, BATCH_DIM]
+
+def toBART(kspace:torch.Tensor, dim_info):
+    kspace = kspace.reshape(kspace.shape[:dim_info['slc']['ind']+1] + (-1,)) # flatten extra dims
+    ind_lastDim = kspace.ndim - 1 # index of last dimension
+    kspace = kspace[(...,) + (None,)*(BART_BATCH_DIM - kspace.ndim + 1)] # add extra dims to match BART format size
+    kspace = kspace.moveaxis((dim_info['cha']['ind'], dim_info['slc']['ind'], ind_lastDim), (BART_COIL_DIM, BART_SLICE_DIM, BART_TE_DIM)) # match BART dim order
+    return kspace
+# converting BART data format to recoMRD data format
+def fromBART(kspace:torch.Tensor, dim_info, original_shape):
+    kspace = kspace[(...,) + (None,)*(BART_BATCH_DIM - kspace.ndim + 1)] # add extra dims to match BART format size if is not already!
+    kspace = kspace.moveaxis((BART_COIL_DIM, BART_SLICE_DIM, BART_TE_DIM), (dim_info['cha']['ind'], dim_info['slc']['ind'], dim_info['slc']['ind']+1))
+    return kspace.reshape(original_shape)
 
 
 class recoMRD(readMRD):    
     img = None
+    device = 'cpu'
   
-    def __init__(self, filename=None):   
+    def __init__(self, filename=None, device='cpu'):   
         super().__init__(filename)
+        self.device = device
+        torch.cuda.empty_cache()
+        for keys in self.kspace:
+            if isinstance(self.kspace[keys], np.ndarray):                
+                self.kspace[keys] = torch.from_numpy(self.kspace[keys])
 
+    def runReco(self, method_sensitivity='caldir', method_coilcomb='bart', remove_os=True):        
+        # Removing Oversampling?
+        kspace = self.kspace['image_scan'] if not remove_os else self.remove_oversampling(self.kspace['image_scan'], is_kspace=True)
 
-    def runReco(self, method_sensitivity='caldir', method_coilcomb='bart'):
-        kspace_osremoved = self.remove_oversampling(self.kspace['image_scan'], is_kspace=True)
         # Partial Fourier?
         if self.isPartialFourierRO:
-            kspace_osremoved = self.POCS(kspace_osremoved, dim_pf= self.dim_info['ro']['ind'])
+            kspace = self.POCS(kspace, dim_pf= self.dim_info['ro']['ind'])
         if self.isPartialFourierPE1:
-            kspace_osremoved = self.POCS(kspace_osremoved, dim_pf= self.dim_info['pe1']['ind'])
+            kspace = self.POCS(kspace, dim_pf= self.dim_info['pe1']['ind'])
         if self.isPartialFourierPE2:
-            kspace_osremoved = self.POCS(kspace_osremoved, dim_pf= self.dim_info['pe2']['ind'])
+            kspace = self.POCS(kspace, dim_pf= self.dim_info['pe2']['ind'])
 
         coils_sensitivity = None
         # Parallel Imaging?
         if self.isParallelImaging:
-            acs_img = self.kspace['acs']
-            acs_img = self.remove_oversampling(acs_img, is_kspace=True)
-            coils_sensitivity = self.calc_coil_sensitivity(acs_img, method=method_sensitivity)
+            acs = self.kspace['acs'] if not remove_os else self.remove_oversampling(self.kspace['acs'], is_kspace=True)
+            coils_sensitivity = self.calc_coil_sensitivity(acs, method=method_sensitivity)
         else:
-            coils_sensitivity = self.calc_coil_sensitivity(kspace_osremoved, method=method_sensitivity)
+            coils_sensitivity = self.calc_coil_sensitivity(kspace, method=method_sensitivity)
 
-        self.img = self.coil_combination(kspace_osremoved, method=method_coilcomb, coil_sens=coils_sensitivity)
+        self.img = self.coil_combination(kspace, method=method_coilcomb, coil_sens=coils_sensitivity)
 
     ##########################################################
     # applying iFFT to kspace and build image
-    def kspace_to_image(self, kspace:np.ndarray, axes=None):
+    def kspace_to_image(self, kspace:torch.Tensor, axes=None):
         if kspace.ndim != len(self.dim_size):
             print(f'Error! shape is wrong. {kspace.shape} vs {self.dim_size}')
             return
         if axes is None:
             axes = self.dim_enc
 
-        img = np.zeros_like(kspace, dtype=np.complex64)
+        img = torch.zeros_like(kspace, dtype=kspace.dtype)
         # this loop is slow because of order='F' and ind is in the first dimensions. see above, _create_kspace(). 
         for ind in tqdm(range(self.dim_info['cha']['len']), desc='Fourier transform'):
             img[ind,...] = ifftnd(kspace[[ind],...], axes=axes) # [ind] --> https://stackoverflow.com/questions/3551242/
         return img
 
-    def image_to_kspace(self, img:np.ndarray, axes=None):
+    def image_to_kspace(self, img:torch.Tensor, axes=None):
         if img.ndim != len(self.dim_size):
             print(f'Error! shape is wrong. {img.shape} vs {self.dim_size}')
             return
         if axes is None:
             axes = self.dim_enc
 
-        kspace = np.zeros_like(img, dtype=np.complex64)
+        kspace = torch.zeros_like(img, dtype=img.dtype)
         # this loop is slow because of order='F' and ind is in the first dimensions. see above, _create_kspace(). 
         for ind in tqdm(range(self.dim_info['cha']['len']), desc='Fourier transform'):
             kspace[ind,...] = fftnd(img[[ind],...], axes=axes) # [ind] --> https://stackoverflow.com/questions/3551242/     
         return kspace
 
     ##########################################################
-    def coil_combination(self, kspace:np.ndarray, method='sos', coil_sens=None):
+    def coil_combination(self, kspace:torch.Tensor, method='sos', coil_sens=None):
+        print(f'Combining coils ({method})... ')
+        torch.cuda.empty_cache()
         if kspace.ndim != len(self.dim_size):
             print(f'Input size is not valid. {kspace.shape} != {self.dim_size}')
             return
@@ -82,32 +124,49 @@ class recoMRD(readMRD):
             print(f'Given method is not valid. Choose between {", ".join(all_methods)}')
             return
         
-        shp = (1,) + kspace.shape[1:]
+        shp = (1,) + kspace.shape[1:] # coil is 1 after combining
         # sos    
         volume       = self.kspace_to_image(kspace) # is needed in 'adaptive'
-        volume_comb  = np.sqrt(np.sum(abs(volume)**2, self.dim_info['cha']['ind'], keepdims=True)) # is needed in 'bart' to calculate scale factor
+        volume_comb  = torch.sqrt(torch.sum(torch.abs(volume)**2, self.dim_info['cha']['ind'], keepdims=True)) # is needed in 'bart' to calculate scale factor
+        import time
+        s = time.time()
+
         if method.lower() == 'bart' and coil_sens is not None:
+            
             l2_reg       = 1e-4
-            kspace       = np.moveaxis(kspace, 0, 3) # adapting to bart CFL format: [RO, PE1, PE2, CHA, ...] see https://bart-doc.readthedocs.io/en/latest/data.html or https://github.com/mrirecon/bart/blob/master/src/misc/mri.h
-            coil_sens    = np.moveaxis(coil_sens, 0, 3) # adapting to bart CFL format
-            n_nonBART1   = np.prod(kspace.shape[self.dim_info['slc']['ind']:]) # number of non-BART dims 
-            n_nonBART2   = np.prod(kspace.shape[self.dim_info['slc']['ind']+1:]) # number of non-BART dims ecluding slice dim
-            kspace       = kspace.reshape(kspace.shape[:4] +(-1,)) # flatten extra dims
-            volume_comb  = volume_comb.reshape(volume_comb.shape[:4] + (-1,)) # flatten extra dims for output
-            scale_factor = [np.percentile(volume_comb[...,ind], 99).astype(np.float32) for ind in range(volume_comb.shape[-1])]
-            recon        = [bart.bart(1, 'pics -w {} -R Q:{} -S'.format(scale_factor[ind], l2_reg), kspace[...,ind], coil_sens[...,ind//n_nonBART2]) for ind in range(n_nonBART1)]
-            volume_comb  = np.stack(recon, axis=recon[0].ndim).reshape(shp)
+            # kspace       = torch.moveaxis(kspace, self.dim_info['cha']['ind'], BART_COIL_DIM)    # adapting to bart CFL format: [RO, PE1, PE2, CHA, ...] see https://bart-doc.readthedocs.io/en/latest/data.html or https://github.com/mrirecon/bart/blob/master/src/misc/mri.h
+            # coil_sens    = torch.moveaxis(coil_sens, self.dim_info['cha']['ind'], BART_COIL_DIM) # adapting to bart CFL format
+            # n_nonBART1   = math.prod(kspace.shape[self.dim_info['slc']['ind']:])    # number of non-BART dims 
+            # n_nonBART2   = math.prod(kspace.shape[self.dim_info['slc']['ind']+1:])  # number of non-BART dims excluding slice dim
+            # kspace       = kspace.reshape(kspace.shape[:4] +(-1,))              # flatten extra dims
+            # volume_comb  = volume_comb.reshape(volume_comb.shape[:4] + (-1,))   # flatten extra dims for output
+            # scale_factor = [torch.quantile(volume_comb[...,ind], 0.99).tolist() for ind in range(volume_comb.shape[-1])]
+            # recon        = [bart.bart(1, 'pics -g -w {} -R Q:{} -S'.format(scale_factor[ind], l2_reg), kspace[...,ind].numpy(), coil_sens[...,ind//n_nonBART2].numpy()) for ind in range(n_nonBART1)]
+            # volume_comb  = np.stack(recon, axis=recon[0].ndim).reshape(shp)
+            # volume_comb  = torch.from_numpy(volume_comb)
+
+            kspace    = toBART(kspace, self.dim_info)
+            coil_sens = toBART(coil_sens, self.dim_info)
+            scale_factor = torch.quantile(volume_comb, 0.99).tolist()
+            recon        = bart.bart(1, 'pics -g -w {} -R Q:{} -S'.format(scale_factor, l2_reg), kspace.numpy(), coil_sens.numpy())
+            volume_comb  = fromBART(torch.from_numpy(recon), self.dim_info, shp)
+            
 
         elif method.lower() == 'adaptive' and coil_sens is not None:
-            coil_sens    = np.expand_dims(coil_sens, axis=[*range(coil_sens.ndim, kspace.ndim)]) # https://numpy.org/doc/stable/user/basics.broadcasting.html
-            volume_comb  = np.divide(volume, coil_sens, out=np.zeros_like(coil_sens), where=coil_sens!=0)
-            volume_comb  = np.sum(volume_comb, self.dim_info['cha']['ind'], keepdims=True)
+            coil_sens    = torch.expand_dims(coil_sens, axis=[*range(coil_sens.ndim, kspace.ndim)]) # https://numpy.org/doc/stable/user/basics.broadcasting.html
+            volume_comb  = torch.divide(volume, coil_sens, out=torch.zeros_like(coil_sens), where=coil_sens!=0)
+            volume_comb  = torch.sum(volume_comb, self.dim_info['cha']['ind'], keepdims=True)
 
+        print(time.time()-s)
+        print('Done.')
         return volume_comb
 
     ##########################################################
-    def calc_coil_sensitivity(self, acs:np.ndarray, method='caldir'):
+    def calc_coil_sensitivity(self, acs:torch.Tensor, method='caldir'):
+        print('Computing coil sensitivity...')
+        torch.cuda.empty_cache()
         all_methods = ('espirit', 'caldir', 'walsh')
+        
         if method.lower() not in all_methods:
             print(f'Given method is not valid. Choose between {", ".join(all_methods)}')
             return
@@ -116,18 +175,20 @@ class recoMRD(readMRD):
             print('Error! Dimension order does not fit to the desired order.')
             return
 
-        coils_sensitivity = np.zeros_like(acs[...,0,0,0,0,0,0])
+        coils_sensitivity = torch.zeros_like(acs[...,0,0,0,0,0,0])
         if method.lower() == 'espirit'.lower():
             for cslc in range(self.dim_info['slc']['len']):
-                kspace      = np.moveaxis(acs[...,cslc,0,0,0,0,0,0], 0, 3)
+                kspace      = torch.moveaxis(acs[...,cslc,0,0,0,0,0,0], self.dim_info['cha']['ind'], BART_COIL_DIM)
                 coil_sens   = bart.bart(1, 'ecalib -m 1', kspace)
-                coils_sensitivity[...,cslc] = np.moveaxis(coil_sens, 3, 0)
+                coils_sensitivity[...,cslc] = torch.moveaxis(coil_sens, BART_COIL_DIM, self.dim_info['cha']['ind'])
+
         elif method.lower() == 'caldir'.lower():
             for cslc in range(self.dim_info['slc']['len']):
-                kspace      = np.moveaxis(acs[...,cslc,0,0,0,0,0,0], 0, 3)
-                cal_size    = np.max(kspace.shape[:3])//2
-                coil_sens   = bart.bart(1, f'caldir {cal_size}', kspace)
-                coils_sensitivity[...,cslc] = np.moveaxis(coil_sens, 3, 0)
+                kspace      = torch.moveaxis(acs[...,cslc,0,0,0,0,0,0], self.dim_info['cha']['ind'], BART_COIL_DIM)
+                cal_size    = max(list(kspace.shape[:BART_COIL_DIM]))//2
+                coil_sens   = bart.bart(1, f'caldir {cal_size}', kspace.numpy())
+                coils_sensitivity[...,cslc] = torch.moveaxis(torch.from_numpy(coil_sens), BART_COIL_DIM, self.dim_info['cha']['ind'])
+
         elif method.lower() == 'walsh'.lower():
             dir_path = os.path.dirname(os.path.realpath(__file__))
             handle   = ctypes.CDLL(os.path.join(dir_path, "lib", "libwalsh.so")) 
@@ -149,173 +210,142 @@ class recoMRD(readMRD):
             nc_svd = -1
             handle.adaptive_combine(acs, weights, norm, (ctypes.c_int*4)(*n), (ctypes.c_int*3)(*ks), (ctypes.c_int*3)(*st), nc_svd, False) # 3D and 4D input
             coils_sensitivity = weights.copy(order='C').reshape(coils_sensitivity.shape)
-            
+        
+        print('Done.')
         return coils_sensitivity
 
     ##########################################################
-    def compress_coil(self, *kspace:np.ndarray, virtual_channels=None): 
+    def compress_coil(self, *kspace:torch.Tensor, virtual_channels=None): 
         # kspace[0] is the reference input to create compression matrix for all inputs, it should be GRAPPA scan for example.    
         print('Compressing Rx channels...')
-        d = self.dim_info
-        if d['cha']['ind']!=0 or d['ro']['ind']!=1 or d['pe1']['ind']!=2 or d['pe2']['ind']!=3 or d['slc']['ind']!=4:
-            print('Error! Dimension order does not fit to the desired order.')
-            return
-
+        torch.cuda.empty_cache()
         if virtual_channels == None:
-            virtual_channels = int(kspace[0].shape[d['cha']['ind']] * 0.75)
+            virtual_channels = int(kspace[0].shape[self.dim_info['cha']['ind']] * 0.75)
 
-        kspace_cfl = [np.moveaxis(kspc, 0, 3) for kspc in kspace] # adapting to bart CFL format
-        cc_matrix  = [bart.bart(1, 'bart cc -A -M', kspace_cfl[0][...,cslc,0,0,0,0,0,0]) for cslc in range(d['slc']['len'])]
+        kspace_cfl = [torch.moveaxis(kspc, self.dim_info['cha']['ind'], BART_COIL_DIM) for kspc in kspace] # adapting to bart CFL format
+        cc_matrix  = [bart.bart(1, 'bart cc -A -M', kspace_cfl[0][...,cslc,0,0,0,0,0,0].numpy()) for cslc in range(self.dim_info['slc']['len'])]
 
         kspace_compressed_cfl = []
         for kspc in kspace_cfl:
-            n_extra1 = np.prod(kspc.shape[4:]) # number of extra dims  
-            n_extra2 = np.prod(kspc.shape[5:]) # number of extra dims excluing slice
-            kspc_r   = kspc.reshape(kspc.shape[:4] + (-1,)) # flatten extra dims
+            n_extra1 = torch.prod(kspc.shape[self.dim_info['slc']['ind']:])   # number of extra dims  
+            n_extra2 = torch.prod(kspc.shape[self.dim_info['slc']['ind']+1:]) # number of extra dims excluing slice
+            kspc_r   = kspc.reshape(kspc.shape[:self.dim_info['slc']['ind']] + (-1,)) # flatten extra dims
             kspc_cc  = [bart.bart(1, f'ccapply -p {virtual_channels}', k, cc_matrix[i%n_extra2]) for k, i in zip(kspc_r, range(n_extra1))]
-            kspace_compressed_cfl.append(np.stack(kspc_cc, axis=4).reshape(kspc.shape))
+            kspace_compressed_cfl.append(torch.from_numpy(np.stack(kspc_cc, axis=4)).reshape(kspc.shape))
 
-        kspace_compressed = [np.moveaxis(kspc, 3, 0) for kspc in kspace_compressed_cfl]
+        kspace_compressed = [torch.moveaxis(kspc, BART_COIL_DIM, self.dim_info['cha']['ind']) for kspc in kspace_compressed_cfl]
         return (*kspace_compressed,)
 
     ##########################################################
-    def remove_oversampling(self, img:np.ndarray, is_kspace=False):
+    def remove_oversampling(self, img:torch.Tensor, is_kspace=False):
+        print('Removing oversampling...')
+        torch.cuda.empty_cache()
         if img.ndim != len(self.dim_size):
-            print(f'Error! shape is wrong. {img.shape} vs {self.dim_size}')
+            print(f'Error! not same dimensionality. {img.shape} vs {self.dim_size}')
             return
         
         if img.shape[self.dim_info['ro']['ind']] != self.dim_info['ro']['len']:
             print('Oversampling is already removed!')
             return
-
-        print('Remove oversampling...', end=' ')
+        
         if is_kspace:
             os_factor = self.dim_info['ro']['len'] / self.matrix_size['image']['x'] # must be divisible, otherwise I made a mistake somewhere
-            ind = np.arange(0, self.dim_info['ro']['len'], os_factor, dtype=int)
+            ind = torch.arange(0, self.dim_info['ro']['len'], os_factor, dtype=torch.long)
         else:
             cutoff = (img.shape[self.dim_info['ro']['ind']] - self.matrix_size['image']['x']) // 2 # // -> integer division
-            ind = np.arange(cutoff, cutoff+self.matrix_size['image']['x']) # img[:,cutoff:-cutoff,...]
+            ind = torch.arange(cutoff, cutoff+self.matrix_size['image']['x'], dtype=torch.long) # img[:,cutoff:-cutoff,...]
         
-        img = np.take(img, ind, axis=self.dim_info['ro']['ind'])
+        img = torch.index_select(img, dim=self.dim_info['ro']['ind'], index=ind)
 
         print('Done.')
         return img
 
 
-    ##########################################################   
-    # update dimension info based on the input image
-    def update_dim_info(self, img:np.ndarray):
-        if img.ndim != len(self.dim_size):
-            print(f'Error! shape is wrong. {img.shape} vs {self.dim_size}')
-            return
-        
-        for tags in self.dim_info.keys():
-            self.dim_info[tags]['len'] = img.shape[self.dim_info[tags]['ind']]
-            self.dim_size[self.dim_info[tags]['ind']] = self.dim_info[tags]['len']
-
-
     ##########################################################
     # Partial Fourier using Projection onto Convex Sets
-    def POCS(self, kspace:np.ndarray, dim_pf=1, number_of_iterations=5):
+    def POCS(self, kspace:torch.Tensor, dim_pf=1, number_of_iterations=5):
         print(f'POCS reconstruction along dim = {dim_pf} started...')
-        dim_nonpf = tuple([int(x) for x in range(kspace.ndim) if x != dim_pf])        
+        torch.cuda.empty_cache()
+        kspace = kspace.to(self.device)
+
+        dim_nonpf     = tuple([int(x) for x in range(kspace.ndim) if x != dim_pf])        
         dim_nonpf_enc = tuple(set(self.dim_enc) & set(dim_nonpf))
 
-        n_full = kspace.shape[dim_pf]
-        # n_zpf  = n_full - (self.enc_minmax_ind[dim_pf][1] - self.enc_minmax_ind[dim_pf][0]) # number of zeros along partial fourier dimension 
-        # minmax_ind = [self.enc_minmax_ind[dim_pf][0], self.enc_minmax_ind[dim_pf][1]]
-
+        n_full = kspace.shape[dim_pf] 
         # mask for partial Fourier dimension taking accelleration into account
-        mask_pf_acc = np.sum(np.abs(kspace), dim_nonpf) > 0
-        ind_one  = np.nonzero(mask_pf_acc == True)[0].tolist()
+        mask    = torch.sum(torch.abs(kspace), dim_nonpf) > 0 # a mask along PF direction, considering acceleration, type: tensor
+        ind_one = torch.nonzero(mask == True, as_tuple=True)[0] # index of mask_pf_acc, type: tensor
+        acc_pf  = ind_one[1] - ind_one[0] # accelleration in partial Fourier direction
         # partial Fourier is at the beginning or end of the dimension
-        nopocs_range = np.arange(ind_one[-1]+1) # nopocs_range does not take accelleration into account, right?
-        if ind_one[0] > (mask_pf_acc.size - ind_one[-1] - 1): # check which side has more zeros, beginning or end
-            nopocs_range = np.arange(ind_one[0], mask_pf_acc.size)
-
-        # accelleration in partial Fourier direction
-        acc_pf = ind_one[1] - ind_one[0]
-        shift = acc_pf * ((mask_pf_acc.size - nopocs_range.size) // acc_pf)
-        if nopocs_range[-1] == mask_pf_acc.size - 1: # again, check which side partial Fourier is
-            shift = -shift
+        ind_samples = torch.arange(ind_one[-1]+1) # index of samples in PF direction, without acceleration. ind_nopocs does not take accelleration into account, right?
+        if ind_one[0] > (mask.numel() - ind_one[-1] - 1): # check which side has more zeros, beginning or end
+            ind_samples = torch.arange(ind_one[0], mask.numel())
 
         # mask if there was no accelleration in PF direction
-        mask_pf = mask_pf_acc.copy()
-        mask_pf[nopocs_range] = True 
+        mask[ind_samples] = True 
         # vector mask for central region
-        mask_sym = mask_pf & np.flip(mask_pf)
-        # mask for entire kspace with no accelleration in PF direction
-        mask_pf = np.broadcast_to(np.expand_dims(mask_pf, axis=dim_nonpf), kspace.shape)
-        
-        # mask that takes accelleration into account without partial Fourier
-        mask_nonpf = np.abs(kspace) > 0
-        mask_nonpf = mask_nonpf | np.roll(mask_nonpf, shift, axis=dim_pf) # expland mask along pocs direction
-        
+        mask_sym = mask & torch.flip(mask, dims=[0])        
         # gaussian mask for central region in partial Fourier dimension
-        gauss_pdf = sp.stats.norm.pdf(np.linspace(0, 1, n_full), 0.5, 0.05) * mask_sym
+        gauss_pdf = torch.signal.windows.gaussian(n_full, std=10, device=kspace.device) * mask_sym
         # kspace smoothed with gaussian profile and masked central region
-        kspace_symmetric = kspace.copy()
-        kspace_symmetric = np.swapaxes(np.swapaxes(kspace_symmetric, dim_pf, -1) * gauss_pdf, -1, dim_pf)
-
-        angle_image_symmetric = self.kspace_to_image(kspace_symmetric)
-        angle_image_symmetric = np.exp(1j * np.angle(angle_image_symmetric))
+        kspace_symmetric = kspace.clone()
+        kspace_symmetric = torch.swapaxes(torch.swapaxes(kspace_symmetric, dim_pf, -1) * gauss_pdf, -1, dim_pf)
+        angle_image_symmetric  = self.kspace_to_image(kspace_symmetric) 
+        angle_image_symmetric /= torch.abs(angle_image_symmetric) # normalize to unit circle 
 
         kspace_full = self.kspace_to_image(kspace, axes=dim_nonpf_enc) # along non-pf encoding directions
-        kspace_full_clone = kspace_full.copy()
+        kspace_full_clone = kspace_full.clone()
         for ind in range(number_of_iterations):
             image_full  = self.kspace_to_image(kspace_full, axes=[dim_pf])
-            image_full  = np.abs(image_full) * angle_image_symmetric
+            image_full  = torch.abs(image_full) * angle_image_symmetric
             kspace_full = self.image_to_kspace(image_full, axes=[dim_pf])
-            np.putmask(kspace_full, mask_pf, kspace_full_clone) # replace elements of kspace_full from kspace_full_clone based on mask_nonpf
+            torch.moveaxis(kspace_full, dim_pf, 0)[mask] = torch.moveaxis(kspace_full_clone, dim_pf, 0)[mask] # replace elements of kspace_full from original kspace_full_clone
 
         kspace_full = self.image_to_kspace(kspace_full, axes=dim_nonpf_enc)
-        np.putmask(kspace_full, np.logical_not(mask_nonpf), 0)
-        return kspace_full
+        # remove all samples that was not part of the original dataset (e.g. acceleartion)        
+        mask = torch.sum(torch.abs(kspace), dim_nonpf) > 0
+        mask[ind_one[0]%acc_pf::acc_pf] = True
+        torch.moveaxis(kspace_full, dim_pf, 0)[~mask] = 0       
+        print('Done.')
 
-    
-    ##########################################################
-    # Save sampling pattern as mat file
-    def save_sampling_pattern(self, volume:np.ndarray, filename):
-        sampling_pattern = np.abs(volume) > 0
-        sp.io.savemat(filename, {'sampling_pattern': sampling_pattern})
-        print(f'Sampling pattern is saved as {os.path.abspath(filename)}')
+        return kspace_full.to('cpu') 
 
 
     ##########################################################
     # Save a custom volume as nifti
-    def make_nifti(self, volume:np.ndarray, filename):        
+    def make_nifti(self, volume:torch.Tensor, filename):        
         # input must have same dimension ordering as dim_info
-        df = self.dim_info
-        check_dims = [df['ro']['ind'], df['pe1']['ind'], df['pe2']['ind'], df['slc']['ind'], df['rep']['ind']]
+        check_dims = [self.dim_info['ro']['ind'], self.dim_info['pe1']['ind'], self.dim_info['pe2']['ind'], self.dim_info['slc']['ind'], self.dim_info['rep']['ind']] # the dimensions that must be checked
         ds = [self.dim_size[y] for y in check_dims]
         vs = [volume.shape[y] for y in check_dims]
         if vs != ds and vs[0]*2 != ds[0]: # second condition is to account for oversampling
             print(f"Size mismatch (RO, PE1, PE2, SLC, REP)! {vs } vs {ds}")
             return
 
-        vs = [y for y in volume.shape  if y!=1]
+        vs = [y for y in volume.shape if y!=1]
         if len(vs) > 4 :
             print(f"{len(vs)}D data is not supported")
             return
 
-        volume = np.flip(volume, axis = [df['ro']['ind'], 
-                                         df['pe1']['ind'],
-                                         df['slc']['ind']])
+        volume = torch.flip(volume, dims=[self.dim_info['ro']['ind'], 
+                                          self.dim_info['pe1']['ind'],
+                                          self.dim_info['slc']['ind']])
         #
         # creating permute indices
         #
-        prmt_ind = np.arange(0, len(df), 1, dtype=int)
-        # swap ro and pe1
-        prmt_ind[[df['ro']['ind'], df['pe1']['ind']]] = prmt_ind[[df['pe1']['ind'], df['ro']['ind']]] 
-        # move cha to end
-        icha = df['cha']['ind']
-        prmt_ind = np.hstack([prmt_ind[:icha], prmt_ind[icha+1:], prmt_ind[icha]])
+        # prmt_ind = np.arange(0, len(self.dim_info), 1, dtype=int)
+        # # swap ro and pe1
+        # prmt_ind[[self.dim_info['ro']['ind'], self.dim_info['pe1']['ind']]] = prmt_ind[[self.dim_info['pe1']['ind'], self.dim_info['ro']['ind']]] 
+        # # move cha to end
+        # icha = self.dim_info['cha']['ind']
+        # prmt_ind = np.hstack([prmt_ind[:icha], prmt_ind[icha+1:], prmt_ind[icha]])
+    
+        # volume = np.transpose(volume, prmt_ind)
 
-        volume = np.transpose(volume, prmt_ind)
-        volume = volume.squeeze()
+        volume = volume.swapaxes(self.dim_info['ro']['ind'], self.dim_info['pe1']['ind']).moveaxis(self.dim_info['cha']['ind'], -1).squeeze()
        
         #
         # save to file
         #
-        img = nib.Nifti1Image(volume, self.nii_affine)
+        img = nib.Nifti1Image(volume.numpy(), self.nii_affine)
         nib.save(img, filename)
