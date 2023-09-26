@@ -29,15 +29,14 @@ def fftnd(img:torch.Tensor, axes=[-1]):
     return kspace
 
 # adapting to bart CFL format, see https://bart-doc.readthedocs.io/en/latest/data.html or https://github.com/mrirecon/bart/blob/master/src/misc/mri.h
-# Dimensions in BART (/src/misc/mri.h):
-#   [READ_DIM, PHS1_DIM, PHS2_DIM, COIL_DIM, MAPS_DIM, TE_DIM, COEFF_DIM, COEFF2_DIM, ITER_DIM, CSHIFT_DIM, TIME_DIM, TIME2_DIM, LEVEL_DIM, SLICE_DIM, AVG_DIM, BATCH_DIM]
-
+# Dimensions in BART (/src/misc/mri.h): [READ_DIM, PHS1_DIM, PHS2_DIM, COIL_DIM, MAPS_DIM, TE_DIM, COEFF_DIM, COEFF2_DIM, ITER_DIM, CSHIFT_DIM, TIME_DIM, TIME2_DIM, LEVEL_DIM, SLICE_DIM, AVG_DIM, BATCH_DIM]
 def toBART(kspace:torch.Tensor, dim_info):
     kspace = kspace.reshape(kspace.shape[:dim_info['slc']['ind']+1] + (-1,)) # flatten extra dims
     ind_lastDim = kspace.ndim - 1 # index of last dimension
     kspace = kspace[(...,) + (None,)*(BART_BATCH_DIM - kspace.ndim + 1)] # add extra dims to match BART format size
     kspace = kspace.moveaxis((dim_info['cha']['ind'], dim_info['slc']['ind'], ind_lastDim), (BART_COIL_DIM, BART_SLICE_DIM, BART_TE_DIM)) # match BART dim order
     return kspace
+
 # converting BART data format to recoMRD data format
 def fromBART(kspace:torch.Tensor, dim_info, original_shape):
     kspace = kspace[(...,) + (None,)*(BART_BATCH_DIM - kspace.ndim + 1)] # add extra dims to match BART format size if is not already!
@@ -115,8 +114,8 @@ class recoMRD(readMRD):
             print(f'Input size is not valid. {kspace.shape} != {self.dim_size}')
             return
         if coil_sens is not None:
-            if kspace.shape[:self.dim_info['slc']['ind']+1] != coil_sens.shape:
-                print(f'Coils Sens. size is not valid. {kspace.shape[:self.dim_info["slc"]["ind"]+1]} != {coil_sens.shape}')
+            if kspace.shape[:self.dim_info['slc']['ind']+1] != coil_sens.shape[:self.dim_info['slc']['ind']+1] :
+                print(f'Coils Sensitivity size is not valid. {kspace.shape} != {coil_sens.shape}')
                 return
 
         all_methods = ('sos', 'bart', 'adaptive')
@@ -176,40 +175,19 @@ class recoMRD(readMRD):
             return
 
         coils_sensitivity = torch.zeros_like(acs[...,0,0,0,0,0,0])
+        # picking the 0th element of the free dimensions
+        for dim_free in self.dim_free:
+            acs = acs.index_select(self.dim_info[dim_free]['ind'], torch.Tensor([0]).int()) 
+        acs_bart = toBART(acs, self.dim_info).numpy() # adapting to bart CFL format
+
         if method.lower() == 'espirit'.lower():
-            for cslc in range(self.dim_info['slc']['len']):
-                kspace      = torch.moveaxis(acs[...,cslc,0,0,0,0,0,0], self.dim_info['cha']['ind'], BART_COIL_DIM)
-                coil_sens   = bart.bart(1, 'ecalib -m 1', kspace)
-                coils_sensitivity[...,cslc] = torch.moveaxis(coil_sens, BART_COIL_DIM, self.dim_info['cha']['ind'])
+            coils_sensitivity = bart.bart(1, '-p {} -e {} ecalib -m 1'.format(1<<BART_SLICE_DIM, acs_bart.shape[BART_SLICE_DIM]), acs_bart)
+            coils_sensitivity = fromBART(torch.from_numpy(coils_sensitivity), self.dim_info, acs.shape)
 
         elif method.lower() == 'caldir'.lower():
-            for cslc in range(self.dim_info['slc']['len']):
-                kspace      = torch.moveaxis(acs[...,cslc,0,0,0,0,0,0], self.dim_info['cha']['ind'], BART_COIL_DIM)
-                cal_size    = max(list(kspace.shape[:BART_COIL_DIM]))//2
-                coil_sens   = bart.bart(1, f'caldir {cal_size}', kspace.numpy())
-                coils_sensitivity[...,cslc] = torch.moveaxis(torch.from_numpy(coil_sens), BART_COIL_DIM, self.dim_info['cha']['ind'])
-
-        elif method.lower() == 'walsh'.lower():
-            dir_path = os.path.dirname(os.path.realpath(__file__))
-            handle   = ctypes.CDLL(os.path.join(dir_path, "lib", "libwalsh.so")) 
-            handle.adaptive_combine.argtypes = [np.ctypeslib.ndpointer(np.complex64, ndim=4, flags='F'),
-                                                np.ctypeslib.ndpointer(np.complex64, ndim=4, flags='F'),
-                                                np.ctypeslib.ndpointer(np.float32, ndim=3, flags='F'),
-                                                ctypes.POINTER(ctypes.c_int), 
-                                                ctypes.POINTER(ctypes.c_int), 
-                                                ctypes.POINTER(ctypes.c_int),
-                                                ctypes.c_int, ctypes.c_bool]
-            
-            acs = self.kspace_to_image(acs)
-            acs = acs[...,0,0,0,0,0,0].squeeze().copy(order='F')            
-            weights = np.zeros_like(acs, dtype=np.complex64, order='F')  
-            norm = np.zeros_like(acs[0,...], dtype=np.float32, order='F')    
-            n = list(acs.shape)
-            ks = [7, 7, 3]
-            st = [1, 1, 1]
-            nc_svd = -1
-            handle.adaptive_combine(acs, weights, norm, (ctypes.c_int*4)(*n), (ctypes.c_int*3)(*ks), (ctypes.c_int*3)(*st), nc_svd, False) # 3D and 4D input
-            coils_sensitivity = weights.copy(order='C').reshape(coils_sensitivity.shape)
+            kernel_size = max([acs.shape[d] for d in self.dim_enc])//2
+            coils_sensitivity = bart.bart(1, '-p {} -e {} caldir {}'.format(1<<BART_SLICE_DIM, acs_bart.shape[BART_SLICE_DIM], kernel_size), acs_bart)
+            coils_sensitivity = fromBART(torch.from_numpy(coils_sensitivity), self.dim_info, acs.shape)
         
         print('Done.')
         return coils_sensitivity
