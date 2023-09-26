@@ -16,6 +16,7 @@ class readMRD(object):
     dim_info = None
     dim_size = None  
     dim_enc  = None  
+    dim_free = None  # non-spatial or Rx dimensions
     is3D     = False
     kspace   = {}         
     matrix_size         = None
@@ -40,6 +41,7 @@ class readMRD(object):
         self.readmrd_tags = ('cha', 'ro', 'pe1', 'pe2', 'slc', 'eco', 'rep', 'set', 'seg', 'ave', 'phs') # order matters here
         self.ismrmrd_tags = ('', '', 'kspace_encode_step_1', 'kspace_encode_step_2', 'slice', 'contrast', 'repetition', 'set', 'segment', 'average', 'phase')
         self.dim_enc      = (1, 2, 3)
+        self.dim_free     = ('eco', 'rep', 'set', 'seg', 'ave', 'phs')
         self.kspace = {}
         self.dim_info = {}
         for i in range(len(self.readmrd_tags)):
