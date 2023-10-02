@@ -56,7 +56,7 @@ class recoMRD(readMRD):
             if isinstance(self.kspace[keys], np.ndarray):                
                 self.kspace[keys] = torch.from_numpy(self.kspace[keys])
 
-    def runReco(self, method_sensitivity='caldir', method_coilcomb='bart', remove_os=True):        
+    def runReco(self, method_sensitivity='caldir', remove_os=True):        
         # Removing Oversampling?
         kspace = self.kspace['image_scan'] if not remove_os else self.remove_oversampling(self.kspace['image_scan'], is_kspace=True)
 
@@ -76,7 +76,7 @@ class recoMRD(readMRD):
         else:
             coils_sensitivity = self.calc_coil_sensitivity(kspace, method=method_sensitivity)
 
-        self.img = self.coil_combination(kspace, method=method_coilcomb, coil_sens=coils_sensitivity)
+        self.img = self.coil_combination(kspace, coil_sens=coils_sensitivity)
 
     ##########################################################
     # applying iFFT to kspace and build image
@@ -107,57 +107,34 @@ class recoMRD(readMRD):
         return kspace
 
     ##########################################################
-    def coil_combination(self, kspace:torch.Tensor, method='sos', coil_sens=None):
-        print(f'Combining coils ({method})... ')
+    def coil_combination(self, kspace:torch.Tensor, coil_sens:torch.Tensor, rss=False):
+        print(f'Combining coils... ')
         torch.cuda.empty_cache()
         if kspace.ndim != len(self.dim_size):
             print(f'Input size is not valid. {kspace.shape} != {self.dim_size}')
             return
-        if coil_sens is not None:
-            if kspace.shape[:self.dim_info['slc']['ind']+1] != coil_sens.shape[:self.dim_info['slc']['ind']+1] :
-                print(f'Coils Sensitivity size is not valid. {kspace.shape} != {coil_sens.shape}')
-                return
-
-        all_methods = ('sos', 'bart', 'adaptive')
-        if method.lower() not in all_methods:
-            print(f'Given method is not valid. Choose between {", ".join(all_methods)}')
+        
+        if kspace.shape[:self.dim_info['slc']['ind']+1] != coil_sens.shape[:self.dim_info['slc']['ind']+1] :
+            print(f'Coils Sensitivity size is not valid. {kspace.shape} != {coil_sens.shape}')
             return
         
         shp = (1,) + kspace.shape[1:] # coil is 1 after combining
         # sos    
-        volume       = self.kspace_to_image(kspace) # is needed in 'adaptive'
+        volume       = self.kspace_to_image(kspace)       
         volume_comb  = torch.sqrt(torch.sum(torch.abs(volume)**2, self.dim_info['cha']['ind'], keepdims=True)) # is needed in 'bart' to calculate scale factor
+        
         import time
         s = time.time()
-
-        if method.lower() == 'bart' and coil_sens is not None:
-            
+        if rss == False:
             l2_reg       = 1e-4
-            # kspace       = torch.moveaxis(kspace, self.dim_info['cha']['ind'], BART_COIL_DIM)    # adapting to bart CFL format: [RO, PE1, PE2, CHA, ...] see https://bart-doc.readthedocs.io/en/latest/data.html or https://github.com/mrirecon/bart/blob/master/src/misc/mri.h
-            # coil_sens    = torch.moveaxis(coil_sens, self.dim_info['cha']['ind'], BART_COIL_DIM) # adapting to bart CFL format
-            # n_nonBART1   = math.prod(kspace.shape[self.dim_info['slc']['ind']:])    # number of non-BART dims 
-            # n_nonBART2   = math.prod(kspace.shape[self.dim_info['slc']['ind']+1:])  # number of non-BART dims excluding slice dim
-            # kspace       = kspace.reshape(kspace.shape[:4] +(-1,))              # flatten extra dims
-            # volume_comb  = volume_comb.reshape(volume_comb.shape[:4] + (-1,))   # flatten extra dims for output
-            # scale_factor = [torch.quantile(volume_comb[...,ind], 0.99).tolist() for ind in range(volume_comb.shape[-1])]
-            # recon        = [bart.bart(1, 'pics -g -w {} -R Q:{} -S'.format(scale_factor[ind], l2_reg), kspace[...,ind].numpy(), coil_sens[...,ind//n_nonBART2].numpy()) for ind in range(n_nonBART1)]
-            # volume_comb  = np.stack(recon, axis=recon[0].ndim).reshape(shp)
-            # volume_comb  = torch.from_numpy(volume_comb)
-
-            kspace    = toBART(kspace, self.dim_info)
-            coil_sens = toBART(coil_sens, self.dim_info)
-            scale_factor = torch.quantile(volume_comb, 0.99).tolist()
-            recon        = bart.bart(1, 'pics -g -w {} -R Q:{} -S'.format(scale_factor, l2_reg), kspace.numpy(), coil_sens.numpy())
+            kspace       = toBART(kspace, self.dim_info)
+            coil_sens    = toBART(coil_sens, self.dim_info)
+            scale_factor = torch.quantile(volume_comb, 0.99).tolist()        
+            recon        = bart.bart(1, f'-p {1<<BART_SLICE_DIM} -e {kspace.shape[BART_SLICE_DIM]} pics -g -d4 -w {scale_factor} -R Q:{l2_reg} -S', kspace.numpy(), coil_sens.numpy())
             volume_comb  = fromBART(torch.from_numpy(recon), self.dim_info, shp)
             
-
-        elif method.lower() == 'adaptive' and coil_sens is not None:
-            coil_sens    = torch.expand_dims(coil_sens, axis=[*range(coil_sens.ndim, kspace.ndim)]) # https://numpy.org/doc/stable/user/basics.broadcasting.html
-            volume_comb  = torch.divide(volume, coil_sens, out=torch.zeros_like(coil_sens), where=coil_sens!=0)
-            volume_comb  = torch.sum(volume_comb, self.dim_info['cha']['ind'], keepdims=True)
-
         print(time.time()-s)
-        print('Done.')
+        print('Done!')
         return volume_comb
 
     ##########################################################
@@ -174,23 +151,22 @@ class recoMRD(readMRD):
             print('Error! Dimension order does not fit to the desired order.')
             return
 
-        coils_sensitivity = torch.zeros_like(acs[...,0,0,0,0,0,0])
         # picking the 0th element of the free dimensions
         for dim_free in self.dim_free:
             acs = acs.index_select(self.dim_info[dim_free]['ind'], torch.Tensor([0]).int()) 
         acs_bart = toBART(acs, self.dim_info).numpy() # adapting to bart CFL format
 
         if method.lower() == 'espirit'.lower():
-            coils_sensitivity = bart.bart(1, '-p {} -e {} ecalib -m 1'.format(1<<BART_SLICE_DIM, acs_bart.shape[BART_SLICE_DIM]), acs_bart)
-            coils_sensitivity = fromBART(torch.from_numpy(coils_sensitivity), self.dim_info, acs.shape)
+            coil_sens = bart.bart(1, f'-p {1<<BART_SLICE_DIM} -e {acs_bart.shape[BART_SLICE_DIM]} ecalib -m 1 -d 4', acs_bart)
+            coil_sens = fromBART(torch.from_numpy(coil_sens), self.dim_info, acs.shape)
 
         elif method.lower() == 'caldir'.lower():
             kernel_size = max([acs.shape[d] for d in self.dim_enc])//2
-            coils_sensitivity = bart.bart(1, '-p {} -e {} caldir {}'.format(1<<BART_SLICE_DIM, acs_bart.shape[BART_SLICE_DIM], kernel_size), acs_bart)
-            coils_sensitivity = fromBART(torch.from_numpy(coils_sensitivity), self.dim_info, acs.shape)
-        
-        print('Done.')
-        return coils_sensitivity
+            coil_sens = bart.bart(1, '-p {} -e {} caldir {}'.format(1<<BART_SLICE_DIM, acs_bart.shape[BART_SLICE_DIM], kernel_size), acs_bart)
+            coil_sens = fromBART(torch.from_numpy(coil_sens), self.dim_info, acs.shape)
+
+        print('Done!')
+        return coil_sens
 
     ##########################################################
     def compress_coil(self, *kspace:torch.Tensor, virtual_channels=None): 
@@ -235,7 +211,7 @@ class recoMRD(readMRD):
         
         img = torch.index_select(img, dim=self.dim_info['ro']['ind'], index=ind)
 
-        print('Done.')
+        print('Done!')
         return img
 
 
@@ -284,10 +260,17 @@ class recoMRD(readMRD):
         mask = torch.sum(torch.abs(kspace), dim_nonpf) > 0
         mask[ind_one[0]%acc_pf::acc_pf] = True
         torch.moveaxis(kspace_full, dim_pf, 0)[~mask] = 0       
-        print('Done.')
+        print('Done!')
 
         return kspace_full.to('cpu') 
 
+    ##########################################################
+    def noise_whitening(self, kspace:torch.Tensor, noise:torch.Tensor):
+        pass
+
+    ##########################################################
+    def get_gfactor(self, kspace:torch.Tensor, coil_sens:torch.Tensor):
+        pass
 
     ##########################################################
     # Save a custom volume as nifti
