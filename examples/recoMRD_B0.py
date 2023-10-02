@@ -15,13 +15,18 @@ class recoMRD_B0(recoMRD):
         super().__init__(filename, device)            
         self.runReco()
         
-    def runReco(self):
+    def runReco(self, method_sensitivity='caldir', remove_os=True):
         if self.dim_info['eco']['len'] < 2:
             print(f"Error!\033[93mAt least two echoes are expected!\033[0m")
             return
 
-        super().runReco()  
-        self.img_mag = torch.abs(self.img)
+        if self.isParallelImaging:
+            super().runReco(method_sensitivity=method_sensitivity, remove_os=remove_os)  
+            self.img_mag = torch.abs(self.img)
+        else:
+            kspace = self.kspace['image_scan'] if not remove_os else self.remove_oversampling(self.kspace['image_scan'], is_kspace=True)
+            self.img = self.kspace_to_image(kspace)
+            self.img_mag = torch.sqrt(torch.sum(torch.abs(self.img)**2, self.dim_info['cha']['ind'], keepdims=True)) 
 
         self.dTE = np.diff(self.xml_hdr.sequenceParameters.TE) * 1e-3
         print(f"Calculating B0 map. \u0394TE = {self.dTE[0]*1e3} ms")
@@ -40,7 +45,8 @@ class recoMRD_B0(recoMRD):
                           self.img_mag.index_select(dim_eco, idx[0]).index_select(dim_rep, idx[0]) * self.img.index_select(dim_eco, idx[0]).index_select(dim_rep, idx[0])
             self.img_b0.moveaxis(dim_rep, 0)[0,...] = torch.tensor(complex(1,0))
 
-        self.img_b0 = torch.angle(self.img_b0)
+        self.img_b0 = torch.angle(self.img_b0.sum(dim=self.dim_info['cha']['ind'], keepdims=True)) # sum over coils
+        self.img = torch.empty((1)) # save memory
 
     ##########################################################
     def get_b0hz(self, b0_uw:torch.Tensor = None, offset = 0):
@@ -68,14 +74,7 @@ class recoMRD_B0(recoMRD):
         b0_uw = np.zeros_like(b0)
         handle.unwrap_b0(b0, b0_uw, *b0_size[:4]) # [:4] -> always 4D shape to unwrapper
         return (torch.from_numpy(b0_uw.copy(order='C'))) 
-                     
-    ##########################################################
 
-    # def coil_combination(self, volume, method='sos', coil_sens=None):
-    #     self.img_mag  = super().coil_combination(volume, method='sos')[:,:,:,:,:,0:1,0:1,0:1,0:1,0:1,0:1].copy() # I used 0:1 rather than  0 fro indexing to keep singleton dimensions. See https://stackoverflow.com/questions/3551242
-    #     self.img_mask = self.img_mag.copy()
-    #     self.img_b0   = np.angle(np.sum(self.img_b0, self.dim_info['cha']['ind'], keepdims=True))
-        # self.img = [] # save memory
                     
 
     
