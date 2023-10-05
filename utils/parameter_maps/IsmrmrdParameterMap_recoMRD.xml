@@ -585,39 +585,39 @@
 
         <!-- recoMRD -->
 
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.0.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dRe_0</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.1.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dRe_1</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.2.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dRe_2</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.3.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dRe_3</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.4.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dRe_4</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.5.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dRe_5</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.6.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dRe_6</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.7.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dRe_7</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.8.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dRe_8</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.9.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dRe_9</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.10.dRe</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dRe_10</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.11.dRe</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dRe_11</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.12.dRe</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dRe_12</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.13.dRe</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dRe_13</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.14.dRe</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dRe_14</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.15.dRe</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dRe_15</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.0.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor0.dRe</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.1.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor1.dRe</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.2.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor2.dRe</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.3.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor3.dRe</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.4.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor4.dRe</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.5.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor5.dRe</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.6.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor6.dRe</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.7.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor7.dRe</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.8.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor8.dRe</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.9.dRe</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor9.dRe</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.10.dRe</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor10.dRe</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.11.dRe</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor11.dRe</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.12.dRe</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor12.dRe</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.13.dRe</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor13.dRe</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.14.dRe</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor14.dRe</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.15.dRe</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor15.dRe</d></p>
 
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.0.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dIm_0</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.1.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dIm_1</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.2.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dIm_2</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.3.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dIm_3</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.4.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dIm_4</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.5.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dIm_5</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.6.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dIm_6</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.7.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dIm_7</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.8.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dIm_8</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.9.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dIm_9</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.10.dIm</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dIm_10</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.11.dIm</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dIm_11</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.12.dIm</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dIm_12</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.13.dIm</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dIm_13</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.14.dIm</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dIm_14</d></p>
-        <p><s>MEAS.sTXSPEC.aTxScaleFactor.15.dIm</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor.dIm_15</d></p> 
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.0.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor0.dIm</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.1.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor1.dIm</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.2.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor2.dIm</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.3.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor3.dIm</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.4.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor4.dIm</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.5.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor5.dIm</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.6.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor6.dIm</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.7.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor7.dIm</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.8.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor8.dIm</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.9.dIm</s>                                 <d>siemens.MEAS.sTXSPEC.aTxScaleFactor9.dIm</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.10.dIm</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor10.dIm</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.11.dIm</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor11.dIm</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.12.dIm</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor12.dIm</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.13.dIm</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor13.dIm</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.14.dIm</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor14.dIm</d></p>
+        <p><s>MEAS.sTXSPEC.aTxScaleFactor.15.dIm</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor15.dIm</d></p> 
 
         <p><s>YAPS.alICEProgramPara</s>                                             <d>siemens.YAPS.alICEProgramPara</d></p>
 

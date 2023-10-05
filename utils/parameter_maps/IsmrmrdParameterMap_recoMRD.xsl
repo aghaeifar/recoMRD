@@ -845,7 +845,7 @@
                 <xsl:for-each select="siemens/YAPS/alICEProgramPara">
                 <xsl:variable name="CurLong" select="position()"/>
                 <userParameterLong>
-                    <name>ICEProgramPara[<xsl:value-of select="$CurLong - 1" />]</name>
+                    <name>alICEProgramPara[<xsl:value-of select="$CurLong - 1" />]</name>
                     <value>
                     <xsl:value-of select="."/>
                     </value>
@@ -1084,288 +1084,299 @@
                     </userParameterDouble>
                 </xsl:if>
 
-   
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_0">
+
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor0/dRe">
                     <userParameterDouble>
-                        <name>TxScaleFactorRe_0</name>
+                        <name>aTxScaleFactor[0].dRe</name>
                         <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_0"/>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor0/dRe"/>
                         </value>
                     </userParameterDouble>
                 </xsl:if>
 
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_1">
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor1/dRe">
                     <userParameterDouble>
-                        <name>TxScaleFactorRe_1</name>
+                        <name>aTxScaleFactor[1].dRe</name>
                         <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_1"/>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor1/dRe"/>
                         </value>
                     </userParameterDouble>
                 </xsl:if>
 
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_2">
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor2/dRe">
                     <userParameterDouble>
-                        <name>TxScaleFactorRe_2</name>
+                        <name>aTxScaleFactor[2].dRe</name>
                         <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_2"/>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor2/dRe"/>
                         </value>
                     </userParameterDouble>
                 </xsl:if>
 
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_3">
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor3/dRe">
                     <userParameterDouble>
-                        <name>TxScaleFactorRe_3</name>
+                        <name>aTxScaleFactor[3].dRe</name>
                         <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_3"/>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor3/dRe"/>
                         </value>
                     </userParameterDouble>
                 </xsl:if>
 
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_4">
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor4/dRe">
                     <userParameterDouble>
-                        <name>TxScaleFactorRe_4</name>
+                        <name>aTxScaleFactor[4].dRe</name>
                         <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_4"/>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor4/dRe"/>
                         </value>
                     </userParameterDouble>
                 </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_5">
-                    <userParameterDouble>
-                        <name>TxScaleFactorRe_5</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_5"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_6">
-                    <userParameterDouble>
-                        <name>TxScaleFactorRe_6</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_6"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_7">
-                    <userParameterDouble>
-                        <name>TxScaleFactorRe_7</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_7"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_8">
-                    <userParameterDouble>
-                        <name>TxScaleFactorRe_8</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_8"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_9">
-                    <userParameterDouble>
-                        <name>TxScaleFactorRe_9</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_9"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_10">
-                    <userParameterDouble>
-                        <name>TxScaleFactorRe_10</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_10"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_11">
-                    <userParameterDouble>
-                        <name>TxScaleFactorRe_11</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_11"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_12">
-                    <userParameterDouble>
-                        <name>TxScaleFactorRe_12</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_12"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_13">
-                    <userParameterDouble>
-                        <name>TxScaleFactorRe_13</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_13"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_14">
-                    <userParameterDouble>
-                        <name>TxScaleFactorRe_14</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_14"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_15">
-                    <userParameterDouble>
-                        <name>TxScaleFactorRe_15</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dRe_15"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-
-                                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_1">
-                    <userParameterDouble>
-                        <name>TxScaleFactorIm_1</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_1"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_2">
-                    <userParameterDouble>
-                        <name>TxScaleFactorIm_2</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_2"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_3">
-                    <userParameterDouble>
-                        <name>TxScaleFactorIm_3</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_3"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_4">
-                    <userParameterDouble>
-                        <name>TxScaleFactorIm_4</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_4"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_5">
-                    <userParameterDouble>
-                        <name>TxScaleFactorIm_5</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_5"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_6">
-                    <userParameterDouble>
-                        <name>TxScaleFactorIm_6</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_6"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_7">
-                    <userParameterDouble>
-                        <name>TxScaleFactorIm_7</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_7"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_8">
-                    <userParameterDouble>
-                        <name>TxScaleFactorIm_8</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_8"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_9">
-                    <userParameterDouble>
-                        <name>TxScaleFactorIm_9</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_9"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_10">
-                    <userParameterDouble>
-                        <name>TxScaleFactorIm_10</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_10"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_11">
-                    <userParameterDouble>
-                        <name>TxScaleFactorIm_11</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_11"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_12">
-                    <userParameterDouble>
-                        <name>TxScaleFactorIm_12</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_12"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_13">
-                    <userParameterDouble>
-                        <name>TxScaleFactorIm_13</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_13"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_14">
-                    <userParameterDouble>
-                        <name>TxScaleFactorIm_14</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_14"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
-                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_15">
-                    <userParameterDouble>
-                        <name>TxScaleFactorIm_15</name>
-                        <value>
-                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor/dIm_15"/>
-                        </value>
-                    </userParameterDouble>
-                </xsl:if>
-
                 
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor5/dRe">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[5].dRe</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor5/dRe"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor6/dRe">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[6].dRe</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor6/dRe"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor7/dRe">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[7].dRe</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor7/dRe"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor8/dRe">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[8].dRe</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor8/dRe"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor9/dRe">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[9].dRe</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor9/dRe"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor10/dRe">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[10].dRe</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor10/dRe"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor11/dRe">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[11].dRe</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor11/dRe"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor12/dRe">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[12].dRe</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor12/dRe"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor13/dRe">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[13].dRe</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor13/dRe"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor14/dRe">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[14].dRe</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor14/dRe"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor15/dRe">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[15].dRe</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor15/dRe"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if> 
+
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor0/dIm">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[0].dIm</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor0/dIm"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor1/dIm">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[1].dIm</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor1/dIm"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor2/dIm">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[2].dIm</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor2/dIm"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor3/dIm">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[3].dIm</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor3/dIm"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor4/dIm">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[4].dIm</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor4/dIm"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+                
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor5/dIm">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[5].dIm</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor5/dIm"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor6/dIm">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[6].dIm</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor6/dIm"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor7/dIm">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[7].dIm</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor7/dIm"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor8/dIm">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[8].dIm</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor8/dIm"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor9/dIm">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[9].dIm</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor9/dIm"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor10/dIm">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[10].dIm</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor10/dIm"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor11/dIm">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[11].dIm</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor11/dIm"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor12/dIm">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[12].dIm</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor12/dIm"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor13/dIm">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[13].dIm</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor13/dIm"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor14/dIm">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[14].dIm</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor14/dIm"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if>
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aTxScaleFactor15/dIm">
+                    <userParameterDouble>
+                        <name>aTxScaleFactor[15].dIm</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aTxScaleFactor15/dIm"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if> 
+
 
 
                 <xsl:if test="siemens/YAPS/tContrastBolusAgent">
