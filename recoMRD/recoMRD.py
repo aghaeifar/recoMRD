@@ -13,6 +13,7 @@ BART_SLICE_DIM = 13
 BART_BATCH_DIM = 15
 BART_TE_DIM    = 5
 
+
 def ifftnd(kspace:torch.Tensor, axes=[-1]):
     from torch.fft import fftshift, ifftshift, ifftn
     if axes is None:
@@ -56,7 +57,8 @@ class recoMRD(readMRD):
             if isinstance(self.kspace[keys], np.ndarray):                
                 self.kspace[keys] = torch.from_numpy(self.kspace[keys])
 
-    def runReco(self, method_sensitivity='caldir', remove_os=True):        
+    def runReco(self, method_sensitivity='caldir', remove_os=True):     
+        torch.cuda.empty_cache()   
         # Removing Oversampling?
         kspace = self.kspace['image_scan'] if not remove_os else self.remove_oversampling(self.kspace['image_scan'], is_kspace=True)
 
@@ -123,17 +125,15 @@ class recoMRD(readMRD):
         volume       = self.kspace_to_image(kspace)       
         volume_comb  = torch.sqrt(torch.sum(torch.abs(volume)**2, self.dim_info['cha']['ind'], keepdims=True)) # is needed in 'bart' to calculate scale factor
         
-        import time
-        s = time.time()
         if rss == False:
+            GPU          = '-g' if self.device == 'cuda' else ''
             l2_reg       = 1e-4
             kspace       = toBART(kspace, self.dim_info)
             coil_sens    = toBART(coil_sens, self.dim_info)
             scale_factor = torch.quantile(volume_comb, 0.99).tolist()        
-            recon        = bart.bart(1, f'-p {1<<BART_SLICE_DIM} -e {kspace.shape[BART_SLICE_DIM]} pics -g -d4 -w {scale_factor} -R Q:{l2_reg} -S', kspace.numpy(), coil_sens.numpy())
+            recon        = bart.bart(1, f'-p {1<<BART_SLICE_DIM} -e {kspace.shape[BART_SLICE_DIM]} pics {GPU} -d4 -w {scale_factor} -R Q:{l2_reg} -S', kspace.numpy(), coil_sens.numpy())
             volume_comb  = fromBART(torch.from_numpy(recon), self.dim_info, shp)
             
-        print(time.time()-s)
         print('Done!')
         return volume_comb
 
@@ -228,6 +228,7 @@ class recoMRD(readMRD):
         n_full = kspace.shape[dim_pf] 
         # mask for partial Fourier dimension taking accelleration into account
         mask    = torch.sum(torch.abs(kspace), dim_nonpf) > 0 # a mask along PF direction, considering acceleration, type: tensor
+        mask_clone = mask.clone()
         ind_one = torch.nonzero(mask == True, as_tuple=True)[0] # index of mask_pf_acc, type: tensor
         acc_pf  = ind_one[1] - ind_one[0] # accelleration in partial Fourier direction
         # partial Fourier is at the beginning or end of the dimension
@@ -238,17 +239,22 @@ class recoMRD(readMRD):
         # mask if there was no accelleration in PF direction
         mask[ind_samples] = True 
         # vector mask for central region
-        mask_sym = mask & torch.flip(mask, dims=[0])        
+        mask_sym = mask & torch.flip(mask, dims=[0])      
         # gaussian mask for central region in partial Fourier dimension
         gauss_pdf = torch.signal.windows.gaussian(n_full, std=10, device=kspace.device) * mask_sym
         # kspace smoothed with gaussian profile and masked central region
         kspace_symmetric = kspace.clone()
         kspace_symmetric = torch.swapaxes(torch.swapaxes(kspace_symmetric, dim_pf, -1) * gauss_pdf, -1, dim_pf)
         angle_image_symmetric  = self.kspace_to_image(kspace_symmetric) 
-        angle_image_symmetric /= torch.abs(angle_image_symmetric) # normalize to unit circle 
+        angle_image_symmetric /= torch.abs(angle_image_symmetric) # normalize to unit circle         
 
         kspace_full = self.kspace_to_image(kspace, axes=dim_nonpf_enc) # along non-pf encoding directions
         kspace_full_clone = kspace_full.clone()
+        # free memory
+        del kspace_symmetric 
+        del kspace
+        torch.cuda.empty_cache()
+
         for ind in range(number_of_iterations):
             image_full  = self.kspace_to_image(kspace_full, axes=[dim_pf])
             image_full  = torch.abs(image_full) * angle_image_symmetric
@@ -257,7 +263,7 @@ class recoMRD(readMRD):
 
         kspace_full = self.image_to_kspace(kspace_full, axes=dim_nonpf_enc)
         # remove all samples that was not part of the original dataset (e.g. acceleartion)        
-        mask = torch.sum(torch.abs(kspace), dim_nonpf) > 0
+        mask = mask_clone
         mask[ind_one[0]%acc_pf::acc_pf] = True
         torch.moveaxis(kspace_full, dim_pf, 0)[~mask] = 0       
         print('Done!')
