@@ -1377,6 +1377,60 @@
                     </userParameterDouble>
                 </xsl:if> 
 
+                <xsl:if test="siemens/MEAS/sTXSPEC/aRFPULSE0/flAmplitude">
+                    <userParameterDouble>
+                        <name>aRFPULSE[0].flAmplitude</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aRFPULSE0/flAmplitude"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if> 
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aRFPULSE1/flAmplitude">
+                    <userParameterDouble>
+                        <name>aRFPULSE[1].flAmplitude</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aRFPULSE1/flAmplitude"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if> 
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aRFPULSE2/flAmplitude">
+                    <userParameterDouble>
+                        <name>aRFPULSE[2].flAmplitude</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aRFPULSE2/flAmplitude"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if> 
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aRFPULSE3/flAmplitude">
+                    <userParameterDouble>
+                        <name>aRFPULSE[3].flAmplitude</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aRFPULSE3/flAmplitude"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if> 
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/aRFPULSE4/flAmplitude">
+                    <userParameterDouble>
+                        <name>aRFPULSE[4].flAmplitude</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/aRFPULSE4/flAmplitude"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if> 
+
+                <xsl:if test="siemens/MEAS/sTXSPEC/asNucleusInfo0/flReferenceAmplitude">
+                    <userParameterDouble>
+                        <name>asNucleusInfo[0].flReferenceAmplitude</name>
+                        <value>
+                            <xsl:value-of select="siemens/MEAS/sTXSPEC/asNucleusInfo0/flReferenceAmplitude"/>
+                        </value>
+                    </userParameterDouble>
+                </xsl:if> 
+
 
 
                 <xsl:if test="siemens/YAPS/tContrastBolusAgent">

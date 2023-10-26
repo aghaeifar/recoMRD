@@ -619,7 +619,17 @@
         <p><s>MEAS.sTXSPEC.aTxScaleFactor.14.dIm</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor14.dIm</d></p>
         <p><s>MEAS.sTXSPEC.aTxScaleFactor.15.dIm</s>                                <d>siemens.MEAS.sTXSPEC.aTxScaleFactor15.dIm</d></p> 
 
+        <p><s>MEAS.sTXSPEC.aRFPULSE.0.flAmplitude</s>                               <d>siemens.MEAS.sTXSPEC.aRFPULSE0.flAmplitude</d></p>
+        <p><s>MEAS.sTXSPEC.aRFPULSE.1.flAmplitude</s>                               <d>siemens.MEAS.sTXSPEC.aRFPULSE1.flAmplitude</d></p>
+        <p><s>MEAS.sTXSPEC.aRFPULSE.2.flAmplitude</s>                               <d>siemens.MEAS.sTXSPEC.aRFPULSE2.flAmplitude</d></p>
+        <p><s>MEAS.sTXSPEC.aRFPULSE.3.flAmplitude</s>                               <d>siemens.MEAS.sTXSPEC.aRFPULSE3.flAmplitude</d></p>
+        <p><s>MEAS.sTXSPEC.aRFPULSE.4.flAmplitude</s>                               <d>siemens.MEAS.sTXSPEC.aRFPULSE4.flAmplitude</d></p>
+
+        <p><s>MEAS.sTXSPEC.asNucleusInfo.0.flReferenceAmplitude</s>                 <d>siemens.MEAS.sTXSPEC.asNucleusInfo0.flReferenceAmplitude</d></p>
+
         <p><s>YAPS.alICEProgramPara</s>                                             <d>siemens.YAPS.alICEProgramPara</d></p>
+
+
 
     </parameters>
 </siemens>
