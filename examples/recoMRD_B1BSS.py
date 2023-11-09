@@ -8,14 +8,14 @@ from recoMRD import recoMRD
 GAMMA_RAD       = 267.52218744e6  # rad/(sT)
 GAMMA_HZ        = 42.577478518e6  # Hz/T
 
-BSSAmplitudeIntegralVs          = 'alICEProgramPara[10]' # Volt*micro-second
-BSSAmplitudeIntegralNormalized  = 'alICEProgramPara[11]' # 
-BSSPowerIntegralNormalized      = 'alICEProgramPara[12]' # us
-BSSDuration                     = 'alICEProgramPara[13]' # Hz
-BSSOffResonance                 = 'alICEProgramPara[14]' # Hz
-FermiAmplitudeIntegral          = 'alICEProgramPara[15]' # Hz
-FermiPowerIntegral              = 'alICEProgramPara[16]' # Hz
-BSSVoltage                      = 'aRFPULSE[1].flAmplitude' # Volt
+BSSTransmitVoltage              = 'alICEProgramPara[12]' # Volt
+BSSAmplitudeIntegralVs          = 'alICEProgramPara[13]' # Volt*micro-second
+BSSAmplitudeIntegralNormalized  = 'alICEProgramPara[14]' # 
+BSSPowerIntegralNormalized      = 'alICEProgramPara[15]' # us
+BSSDuration                     = 'alICEProgramPara[16]' # Hz
+BSSOffResonance                 = 'alICEProgramPara[17]' # Hz
+# FermiAmplitudeIntegral          = 'alICEProgramPara[16]' # Hz
+# FermiPowerIntegral              = 'alICEProgramPara[17]' # Hz
 RefVoltage                      = 'asNucleusInfo[0].flReferenceAmplitude' # Volt
 
 
@@ -24,7 +24,7 @@ class recoMRD_B1BSS(recoMRD):
     img_mag = torch.empty([1]) # magnitude image
     KBS = torch.empty([1]) # B1 mapping constant
     seqTxScaleFactor = torch.empty([1])
-    params   = {BSSAmplitudeIntegralVs:0, BSSAmplitudeIntegralNormalized:0, BSSPowerIntegralNormalized:0, BSSDuration:0, BSSOffResonance:0, FermiAmplitudeIntegral:0, FermiPowerIntegral:0, BSSVoltage:0, RefVoltage:0}
+    params   = {BSSAmplitudeIntegralVs:0, BSSAmplitudeIntegralNormalized:0, BSSPowerIntegralNormalized:0, BSSDuration:0, BSSOffResonance:0, BSSTransmitVoltage:0, RefVoltage:0}
 
     def __init__(self, filename=None, device='cpu'):
         super().__init__(filename, device)        
@@ -35,27 +35,25 @@ class recoMRD_B1BSS(recoMRD):
         for pl in self.xml_hdr.userParameters.userParameterLong + self.xml_hdr.userParameters.userParameterDouble:
             if pl.name in self.params:
                 self.params[pl.name] = pl.value
-                
+
+        self.params[BSSTransmitVoltage]             /= 1e3  # remove scaling factor of 1e3
         self.params[BSSAmplitudeIntegralVs]         /= 1e6  # convert to Volt * second         
         self.params[BSSAmplitudeIntegralNormalized] /= 1e3  # remove scaling factor of 1e3
         self.params[BSSPowerIntegralNormalized]     /= 1e3  # remove scaling factor of 1e3
-        self.params[FermiAmplitudeIntegral]         /= 1e3  # remove scaling factor of 1e3
-        self.params[FermiPowerIntegral]             /= 1e3  # remove scaling factor of 1e3
 
         print(f'BSS Pulse Integral [V*Sec]:     {self.params[BSSAmplitudeIntegralVs]}\n' +
               f'BSS Pulse Integral Normalized:  {self.params[BSSAmplitudeIntegralNormalized]}\n' +
               f'BSS Pulse Power Normalized:     {self.params[BSSPowerIntegralNormalized]}\n' +
-              f'Fermi Pulse Integral:           {self.params[FermiAmplitudeIntegral]}\n' + 
-              f'Fermi Pulse Power:              {self.params[FermiPowerIntegral]}\n' +
               f'BSS Pulse Duration [us]:        {self.params[BSSDuration]}\n' +
               f'BSS Pulse Off Resonance [Hz]:   {self.params[BSSOffResonance]}\n' + 
-              f'BSS Pulse Voltage [V]:          {self.params[BSSVoltage]}\n' + 
+              f'BSS Pulse Voltage [V]:          {self.params[BSSTransmitVoltage]}\n' + 
               f'Ref Pulse Voltage [V]:          {self.params[RefVoltage]}')
 
     def runReco(self, method_sensitivity='caldir', remove_os=True):
         set_ind = self.dim_info['set']['ind']
         idx     = torch.tensor([0, 1])
         kspace  = self.kspace['image_scan'] if not remove_os else self.remove_oversampling(self.kspace['image_scan'], is_kspace=True)
+        self.kspace['image_scan'] = None # free memory
         img     = self.kspace_to_image(kspace)
         self.img_mag    = torch.sqrt(torch.sum(torch.abs(img)**2, self.dim_info['cha']['ind'], keepdims=True)) 
 
@@ -70,7 +68,7 @@ class recoMRD_B1BSS(recoMRD):
         self.KBS = GAMMA_RAD*GAMMA_RAD*self.params[BSSPowerIntegralNormalized]*dT / (2 * Wrf)
         print(f'KBS = {self.KBS} rad/T²')
         # compute B1 map in percentage of the nominal flip angle
-        self.img_b1nTv = 1e9 * torch.sqrt(b1_temp / self.KBS) / self.params[BSSVoltage] # nT/V
-
+        self.img_b1nTv = 1e9 * torch.sqrt(b1_temp / self.KBS) / self.params[BSSTransmitVoltage] # nT/V
+        self.img_b1nTv [torch.isnan(self.img_b1nTv )] = 0
 
         
